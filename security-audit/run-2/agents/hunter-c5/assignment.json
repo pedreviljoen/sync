@@ -1,0 +1,58 @@
+{
+  "agent_id": "hunter-c5",
+  "units": [
+    {
+      "coverage_id": "client%2Fios-native%2FFarmer%20App%2FNile%20Farmer%2FShared%2FAuthManager.swift%23token::client%2Fios-native%2FFarmer%20App%2FNile%20Farmer%2FShared%2FKeychainHelper.swift%23save::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Cryptography%20and%20secrets",
+      "canonical_refs": {
+        "surface": "client/ios-native/Farmer App/Nile Farmer/Shared/AuthManager.swift#token",
+        "boundary": "client/ios-native/Farmer App/Nile Farmer/Shared/KeychainHelper.swift#save",
+        "subsystem": "profile/quick/all-in-scope-subsystems",
+        "attack_class": "ATTACK-CLASSES.md#Cryptography and secrets"
+      },
+      "surface": "iOS native Farmer app: token storage, X-Platform, offline data at rest, telemetry",
+      "boundary": "client/ios-native/Farmer App/Nile Farmer/Shared/KeychainHelper.swift#save",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Cryptography and secrets",
+      "starting_paths": [
+        "client/ios-native/Farmer App/Nile Farmer/Shared",
+        "client/ios-native/Farmer App/Nile Farmer/Auth",
+        "client/ios-native/Farmer App/Nile Farmer/Nile_FarmerApp.swift"
+      ],
+      "ordinary_attack_class_block": "ATTACK-CLASSES.md#Cryptography and secrets",
+      "selected_companion_blocks": [
+        "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline",
+        "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Application-state and device-lifecycle attack classes",
+        "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Local IPC and exported-component attack classes",
+        "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Universal moves",
+        "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Validation rules"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+          "reason": "no native memory-unsafe code in client/ scope (Swift/Kotlin/TS)"
+        },
+        {
+          "block": "AI-AND-LLM.md#Core discipline",
+          "reason": "no model/tool-call boundary found in client/ recon"
+        },
+        {
+          "block": "PROTOCOLS-RPC-AND-MESSAGING.md#Core discipline",
+          "reason": "server-side RPC/broker boundary reviewed in run-1 (backend/)"
+        },
+        {
+          "block": "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline",
+          "reason": "server-side tenant isolation reviewed in run-1; client only renders"
+        }
+      ],
+      "prior_status": "none",
+      "attempts": [],
+      "wave": 1,
+      "status": "in_progress",
+      "agent_id": "hunter-c5",
+      "reviewed_paths": [],
+      "local_checks": [],
+      "result_fingerprints": [],
+      "unresolved": []
+    }
+  ]
+}

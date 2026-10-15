@@ -1,0 +1,64 @@
+{
+  "decision": "needs_validation",
+  "record": {
+    "fingerprint": "c4-ios-ci-sentry-token-echoed-to-build-log",
+    "verdict": "needs_validation",
+    "title": "Xcode Cloud post-build script echoes SENTRY_AUTH_TOKEN value to the build log",
+    "description": "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh runs under #!/bin/bash with set -e. Line 11 is an unconditional top-level statement: echo \"SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:+SET (hidden)}${SENTRY_AUTH_TOKEN:-NOT SET}\". In POSIX/bash parameter expansion, ${V:+word} yields word when V is set and non-empty, and ${V:-default} yields the value of V when it is set and non-empty. When the token is set, the line therefore prints 'SET (hidden)' immediately followed by the raw token value. It prints 'NOT SET' only when the token is unset or empty, so the 'hidden' label is misleading. Lines 73-76 make the script exit 1 if the token is unset, and lines 79-82 pass it to sentry-cli upload-dif for org nile-ag, project ios. A successful release run therefore has the token set and logs it. No other line echoes a secret: lines 8-10 print only CI_* variables and the token is otherwise used only as a sentry-cli argument. Whether Xcode Cloud masks the secret in logs, and who can read those logs, are deployment facts not visible in source.",
+    "claimed_root_cause": "Inverted or misused parameter expansion: ${SENTRY_AUTH_TOKEN:-NOT SET} was meant to print only a placeholder, but it expands to the token value whenever the token is set. It is combined with ${...:+SET (hidden)}, which only adds a prefix.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh",
+        "line": 1,
+        "scope": "Xcode Cloud post-xcodebuild hook (bash, set -e); SENTRY_AUTH_TOKEN is injected as a workflow secret environment variable",
+        "description": "Script runs after each Xcode Cloud xcodebuild action with the Sentry token in its environment. The log is readable by the Xcode Cloud / App Store Connect users and anyone with log access."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh",
+        "line": 73,
+        "scope": "top-level of ci_post_xcodebuild.sh, inside if [[ -n \"$CI_ARCHIVE_PATH\" ]]",
+        "description": "Script exits 1 if the token is empty, so any run that reaches the Sentry upload has the token set. Line 11 itself is unconditional and runs on every invocation."
+      },
+      {
+        "kind": "sink",
+        "file": "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh",
+        "line": 11,
+        "scope": "top-level echo, unconditional",
+        "description": "echo expands ${SENTRY_AUTH_TOKEN:-NOT SET} to the token value when set, and writes it to stdout, which Xcode Cloud captures in the build log."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh",
+        "line": 1,
+        "description": "Shebang #!/bin/bash, so bash expansion semantics apply."
+      },
+      {
+        "file": "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh",
+        "line": 11,
+        "description": "echo with ${SENTRY_AUTH_TOKEN:+SET (hidden)}${SENTRY_AUTH_TOKEN:-NOT SET}: for a set value this prints 'SET (hidden)' followed by the token value. The line is not inside any conditional."
+      },
+      {
+        "file": "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh",
+        "line": 73,
+        "description": "Script aborts if the token is unset, so the token must be set for the script to complete successfully."
+      },
+      {
+        "file": "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh",
+        "line": 79,
+        "description": "Token is passed to sentry-cli --auth-token for upload-dif to org nile-ag, project ios, which shows it carries project upload scope at least."
+      }
+    ],
+    "blockers": [
+      "Whether Xcode Cloud masks secret environment variables in build logs is platform behaviour that cannot be established from source.",
+      "Who can read Xcode Cloud build logs (App Store Connect role set, log export or artifact retention) is not in the repository.",
+      "The scopes and live status of the Sentry token stored in the workflow are unknown from source."
+    ],
+    "validation_plan": {
+      "deployment": "Owner-observed, no live probe: in App Store Connect, open the Xcode Cloud logs of a recent build of the Nile and NileStaging workflows and check whether the post-xcodebuild log line 'SENTRY_AUTH_TOKEN: ...' shows only 'SET (hidden)' followed by asterisks or masking, or a readable value. Also list which roles can view the logs. If a readable value appears, rotate the Sentry auth token (org nile-ag), check its scopes, and purge or restrict the old logs. Remediate by removing the :- expansion, e.g. echo \"SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:+SET (hidden)}${SENTRY_AUTH_TOKEN:-NOT SET}\" becomes if [[ -n \"$SENTRY_AUTH_TOKEN\" ]]; then echo \"SENTRY_AUTH_TOKEN: SET (hidden)\"; else echo \"SENTRY_AUTH_TOKEN: NOT SET\"; fi.",
+      "local": "Source-only check already done: in bash, SENTRY_AUTH_TOKEN=dummy; echo \"${SENTRY_AUTH_TOKEN:+SET (hidden)}${SENTRY_AUTH_TOKEN:-NOT SET}\" prints 'SET (hidden)dummy'. Run it only with a dummy value, never the real token."
+    }
+  }
+}

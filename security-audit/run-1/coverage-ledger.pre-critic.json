@@ -1,0 +1,679 @@
+[
+  {
+    "coverage_id": "backend%2Ffunctions%2Ffirebase%2Ffunctions%2Fsrc%2Fpdf.ts%23generatePdf::backend%2Ffunctions%2Ffirebase%2Ffunctions%2Fsrc%2FsignupBlocking.ts%23beforeUserCreated::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Injection",
+    "canonical_refs": {
+      "surface": "backend/functions/firebase/functions/src/pdf.ts#generatePdf",
+      "boundary": "backend/functions/firebase/functions/src/signupBlocking.ts#beforeUserCreated",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "ATTACK-CLASSES.md#Injection"
+    },
+    "surface": "Firebase Cloud Functions (pdf, signup, thumbnails)",
+    "boundary": "backend/functions/firebase/functions/src/signupBlocking.ts#beforeUserCreated",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Injection",
+    "starting_paths": [
+      "backend/functions/firebase/functions/src",
+      "backend/functions/firebase/functions/.runtimeconfig.json"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Injection",
+    "selected_companion_blocks": [
+      "WEB-PROTOCOL-AND-AUTH.md#Core discipline",
+      "WEB-PROTOCOL-AND-AUTH.md#Federated-identity attack classes",
+      "WEB-PROTOCOL-AND-AUTH.md#Universal moves",
+      "WEB-PROTOCOL-AND-AUTH.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+        "reason": "Go/Python/TypeScript only; no native code in backend/ scope"
+      },
+      {
+        "block": "CLIENT-SIDE.md#Core discipline",
+        "reason": "client/ is out of scope for this run"
+      },
+      {
+        "block": "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline",
+        "reason": "client/ is out of scope; no desktop/mobile boundary in backend/"
+      },
+      {
+        "block": "AI-AND-LLM.md#Core discipline",
+        "reason": "no model/tool-call boundary found in backend/ recon"
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-h4",
+    "reviewed_paths": [
+      "backend/functions/firebase/functions/src/pdf.ts",
+      "backend/functions/firebase/functions/src/signupBlocking.ts",
+      "backend/functions/firebase/functions/src/onCreateFirebaseUser.ts",
+      "backend/functions/firebase/functions/src/thumbnails.ts",
+      "backend/functions/firebase/functions/.gitignore"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-h4",
+        "reviewed_paths": [
+          "backend/functions/firebase/functions/src/pdf.ts",
+          "backend/functions/firebase/functions/src/signupBlocking.ts",
+          "backend/functions/firebase/functions/src/onCreateFirebaseUser.ts",
+          "backend/functions/firebase/functions/src/thumbnails.ts",
+          "backend/functions/firebase/functions/.gitignore"
+        ],
+        "invariant": "No caller URL to privileged navigation with secret; no committed secrets",
+        "method": "source",
+        "result": "generatePdf appends token to caller URL; env files not ignored",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "backend/functions/firebase/functions/src/pdf.ts-generatePdf-url-ssrf-token-exfil",
+      "backend/functions/firebase/functions/functions-env-committed-api-keys"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "backend%2Fgo%2Fapi%2Fcmd%2Fserver%2Fmain.go%23ListenAndServe::backend%2Fgo%2Fapi%2Fcmd%2Fserver%2Fmain.go%23handler%20limits::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Resource%20and%20file%20handling",
+    "canonical_refs": {
+      "surface": "backend/go/api/cmd/server/main.go#ListenAndServe",
+      "boundary": "backend/go/api/cmd/server/main.go#handler limits",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "ATTACK-CLASSES.md#Resource and file handling"
+    },
+    "surface": "Unbounded HTTP/GraphQL servers and Firebase functions",
+    "boundary": "backend/go/api/cmd/server/main.go#handler limits",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Resource and file handling",
+    "starting_paths": [
+      "backend/go/api/cmd/server",
+      "backend/go/nilocloud/cmd/server",
+      "backend/go/gerrit/functions"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Resource and file handling",
+    "selected_companion_blocks": [
+      "RESOURCE-EXHAUSTION-AND-AVAILABILITY.md#Core discipline",
+      "RESOURCE-EXHAUSTION-AND-AVAILABILITY.md#Computational amplification attack classes",
+      "RESOURCE-EXHAUSTION-AND-AVAILABILITY.md#Universal moves",
+      "RESOURCE-EXHAUSTION-AND-AVAILABILITY.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+        "reason": "Go/Python/TypeScript only; no native code in backend/ scope"
+      },
+      {
+        "block": "CLIENT-SIDE.md#Core discipline",
+        "reason": "client/ is out of scope for this run"
+      },
+      {
+        "block": "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline",
+        "reason": "client/ is out of scope; no desktop/mobile boundary in backend/"
+      },
+      {
+        "block": "AI-AND-LLM.md#Core discipline",
+        "reason": "no model/tool-call boundary found in backend/ recon"
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-h7",
+    "reviewed_paths": [
+      "backend/go/api/cmd/server/main.go",
+      "backend/go/auth/auth.go",
+      "backend/go/nilocloud/internal/slack.go",
+      "backend/go/gerrit/functions/webhook/webhook.go"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-h7",
+        "reviewed_paths": [
+          "backend/go/api/cmd/server/main.go",
+          "backend/go/auth/auth.go",
+          "backend/go/nilocloud/internal/slack.go",
+          "backend/go/gerrit/functions/webhook/webhook.go"
+        ],
+        "invariant": "Unauthenticated callers cannot cheaply degrade api",
+        "method": "source",
+        "result": "No complexity/depth limit, introspection on, no timeouts",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "api-graphql-introspection-cycle-amplification-unauth"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "backend%2Fgo%2Fapi%2Finternal%2Fgraph%23resolvers::backend%2Fgo%2Fapi%2Finternal%2Fgraph%2Fauth_checks.go%23Authorized::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+    "canonical_refs": {
+      "surface": "backend/go/api/internal/graph#resolvers",
+      "boundary": "backend/go/api/internal/graph/auth_checks.go#Authorized",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "ATTACK-CLASSES.md#Access control"
+    },
+    "surface": "GraphQL API tenant isolation, docs/pdf and Twilio webhooks",
+    "boundary": "backend/go/api/internal/graph/auth_checks.go#Authorized",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Access control",
+    "starting_paths": [
+      "backend/go/api/internal/graph",
+      "backend/go/api/docs",
+      "backend/go/api/internal/webhooks/twilio",
+      "backend/go/access"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+    "selected_companion_blocks": [
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline",
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Tenant and object-isolation attack classes",
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Universal moves",
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+        "reason": "Go/Python/TypeScript only; no native code in backend/ scope"
+      },
+      {
+        "block": "CLIENT-SIDE.md#Core discipline",
+        "reason": "client/ is out of scope for this run"
+      },
+      {
+        "block": "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline",
+        "reason": "client/ is out of scope; no desktop/mobile boundary in backend/"
+      },
+      {
+        "block": "AI-AND-LLM.md#Core discipline",
+        "reason": "no model/tool-call boundary found in backend/ recon"
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-h5",
+    "reviewed_paths": [
+      "backend/go/auth/auth.go",
+      "backend/go/api/internal/graph/schema.resolvers.go",
+      "backend/go/api/internal/graph/auth_checks.go",
+      "backend/go/api/internal/graph/form_input.go",
+      "backend/go/administrator/internal/ops/signup.go",
+      "backend/go/administrator/internal/ops/users/update.go",
+      "backend/go/api/docs/docpdf/logocache.go"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-h5",
+        "reviewed_paths": [
+          "backend/go/auth/auth.go",
+          "backend/go/api/internal/graph/schema.resolvers.go",
+          "backend/go/api/internal/graph/auth_checks.go",
+          "backend/go/api/internal/graph/form_input.go",
+          "backend/go/administrator/internal/ops/signup.go",
+          "backend/go/administrator/internal/ops/users/update.go",
+          "backend/go/api/docs/docpdf/logocache.go"
+        ],
+        "invariant": "Every resolver binds caller; public ops limited; signup and role changes constrained",
+        "method": "source",
+        "result": "Multiple missing/weak authorization checks (see candidates)",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "H5-unauth-opname-bypass",
+      "H5-signup-admin-selfassign",
+      "H5-setuser-self-role-escalation",
+      "H5-editshipment-no-ownership",
+      "H5-packhouse-any-seller",
+      "H5-resolvers-no-authz-read",
+      "H5-resolvers-no-authz-write",
+      "H5-logo-ssrf",
+      "H5-admin-not-platform-scoped"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "backend%2Fgo%2Fauth%2Fauth.go%23userFromIDToken::backend%2Fgo%2Fauth%2Fauth.go%23AuthOperation::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+    "canonical_refs": {
+      "surface": "backend/go/auth/auth.go#userFromIDToken",
+      "boundary": "backend/go/auth/auth.go#AuthOperation",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "ATTACK-CLASSES.md#Access control"
+    },
+    "surface": "Shared robot/PotatoesSA tokens and Firebase claim auth",
+    "boundary": "backend/go/auth/auth.go#AuthOperation",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Access control",
+    "starting_paths": [
+      "backend/go/auth",
+      "backend/functions/firebase/functions/src/pdf.ts",
+      "backend/go/api/cmd/server/main.go"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+    "selected_companion_blocks": [
+      "WEB-PROTOCOL-AND-AUTH.md#Core discipline",
+      "WEB-PROTOCOL-AND-AUTH.md#API-key and mTLS attack classes",
+      "WEB-PROTOCOL-AND-AUTH.md#Universal moves",
+      "WEB-PROTOCOL-AND-AUTH.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+        "reason": "Go/Python/TypeScript only; no native code in backend/ scope"
+      },
+      {
+        "block": "CLIENT-SIDE.md#Core discipline",
+        "reason": "client/ is out of scope for this run"
+      },
+      {
+        "block": "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline",
+        "reason": "client/ is out of scope; no desktop/mobile boundary in backend/"
+      },
+      {
+        "block": "AI-AND-LLM.md#Core discipline",
+        "reason": "no model/tool-call boundary found in backend/ recon"
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-h1",
+    "reviewed_paths": [
+      "backend/go/auth/auth.go",
+      "backend/go/auth/robot_oidc.go",
+      "backend/go/api/cmd/server/main.go",
+      "backend/functions/firebase/functions/src/pdf.ts"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-h1",
+        "reviewed_paths": [
+          "backend/go/auth/auth.go",
+          "backend/go/auth/robot_oidc.go",
+          "backend/go/api/cmd/server/main.go",
+          "backend/functions/firebase/functions/src/pdf.ts"
+        ],
+        "invariant": "Shared tokens come from secret store; PotatoesSA confined to exportData; OIDC robot path validated",
+        "method": "source",
+        "result": "Hardcoded tokens accepted unconditionally; isExportDataQuery checks first argumented field only; robot_oidc.go sound",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "auth/hardcoded-shared-robot-token",
+      "auth/potatoessa-scope-first-field-only",
+      "backend/functions/firebase/functions/src/pdf.ts-generatePdf-url-ssrf-token-exfil"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "backend%2Fgo%2Fgerrit%2Ffunctions%2Fwebhook%2Fwebhook.go%23Handle::backend%2Fgo%2Fgerrit%2Fterraform%2Ffunctions.tf%23allUsers%20invoker::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+    "canonical_refs": {
+      "surface": "backend/go/gerrit/functions/webhook/webhook.go#Handle",
+      "boundary": "backend/go/gerrit/terraform/functions.tf#allUsers invoker",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "ATTACK-CLASSES.md#Access control"
+    },
+    "surface": "Gerrit webhook, build function and agent",
+    "boundary": "backend/go/gerrit/terraform/functions.tf#allUsers invoker",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Access control",
+    "starting_paths": [
+      "backend/go/gerrit",
+      "backend/go/functions.go",
+      "backend/go/nilocloud/internal/gerrit.go"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+    "selected_companion_blocks": [
+      "SUPPLY-CHAIN-AND-RELEASE.md#Core discipline",
+      "SUPPLY-CHAIN-AND-RELEASE.md#CI and automation attack classes",
+      "SUPPLY-CHAIN-AND-RELEASE.md#Universal moves",
+      "SUPPLY-CHAIN-AND-RELEASE.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+        "reason": "Go/Python/TypeScript only; no native code in backend/ scope"
+      },
+      {
+        "block": "CLIENT-SIDE.md#Core discipline",
+        "reason": "client/ is out of scope for this run"
+      },
+      {
+        "block": "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline",
+        "reason": "client/ is out of scope; no desktop/mobile boundary in backend/"
+      },
+      {
+        "block": "AI-AND-LLM.md#Core discipline",
+        "reason": "no model/tool-call boundary found in backend/ recon"
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-h3",
+    "reviewed_paths": [
+      "backend/go/gerrit/functions/webhook/webhook.go",
+      "backend/go/gerrit/terraform/functions.tf",
+      "backend/go/gerrit/task/deploys.go",
+      "backend/go/gerrit/agent/main.go",
+      "backend/go/gerrit/agent/actions/git/checkout.go",
+      "backend/go/nilocloud/internal/gerrit.go"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-h3",
+        "reviewed_paths": [
+          "backend/go/gerrit/functions/webhook/webhook.go",
+          "backend/go/gerrit/terraform/functions.tf",
+          "backend/go/gerrit/task/deploys.go",
+          "backend/go/gerrit/agent/main.go",
+          "backend/go/gerrit/agent/actions/git/checkout.go",
+          "backend/go/nilocloud/internal/gerrit.go"
+        ],
+        "invariant": "Only Gerrit/Scheduler may drive the webhook; agent revalidates refs",
+        "method": "source",
+        "result": "No auth on public webhook; agent trusts supplied NewRev",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "gerrit-webhook-unauthenticated-event-forgery",
+      "nilocloud/gerrit-checks-unauthenticated"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "backend%2Fgo%2Fharvester%2FpotatoesSA%2Fmethods.go%23unzip::backend%2Fgo%2Ffortknox%2Ffortknox.go%23Encrypt::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Resource%20and%20file%20handling",
+    "canonical_refs": {
+      "surface": "backend/go/harvester/potatoesSA/methods.go#unzip",
+      "boundary": "backend/go/fortknox/fortknox.go#Encrypt",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "ATTACK-CLASSES.md#Resource and file handling"
+    },
+    "surface": "Ingestion, crypto and injection in harvester, fortknox, seshat, ledger",
+    "boundary": "backend/go/fortknox/fortknox.go#Encrypt",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Resource and file handling",
+    "starting_paths": [
+      "backend/go/harvester",
+      "backend/go/fortknox",
+      "backend/go/seshat",
+      "backend/go/ledger",
+      "backend/go/mache"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Resource and file handling",
+    "selected_companion_blocks": [],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+        "reason": "Go/Python/TypeScript only; no native code in backend/ scope"
+      },
+      {
+        "block": "CLIENT-SIDE.md#Core discipline",
+        "reason": "client/ is out of scope for this run"
+      },
+      {
+        "block": "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline",
+        "reason": "client/ is out of scope; no desktop/mobile boundary in backend/"
+      },
+      {
+        "block": "AI-AND-LLM.md#Core discipline",
+        "reason": "no model/tool-call boundary found in backend/ recon"
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-h6",
+    "reviewed_paths": [
+      "backend/go/harvester/internal/ops/potatoesSA/methods.go",
+      "backend/go/fortknox/fortknox.go",
+      "backend/go/seshat/main.go",
+      "backend/go/seshat/warehouse/client.go"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-h6",
+        "reviewed_paths": [
+          "backend/go/harvester/internal/ops/potatoesSA/methods.go",
+          "backend/go/fortknox/fortknox.go",
+          "backend/go/seshat/main.go",
+          "backend/go/seshat/warehouse/client.go"
+        ],
+        "invariant": "Archive entry names stay inside extraction dir; fortknox/seshat inputs safe",
+        "method": "source",
+        "result": "Zip-slip candidate; fortknox/seshat hardening only",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "harvester-potatoessa-unzip-path-traversal"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "backend%2Fgo%2Fnilocloud%2Finternal%2Fhandlers.go%23routes::backend%2Fgo%2Fnilocloud%2Finternal%2Fmiddleware.go%23authMiddleware::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+    "canonical_refs": {
+      "surface": "backend/go/nilocloud/internal/handlers.go#routes",
+      "boundary": "backend/go/nilocloud/internal/middleware.go#authMiddleware",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "ATTACK-CLASSES.md#Access control"
+    },
+    "surface": "nilocloud HTTP, Slack and Horus routes",
+    "boundary": "backend/go/nilocloud/internal/middleware.go#authMiddleware",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Access control",
+    "starting_paths": [
+      "backend/go/nilocloud"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+    "selected_companion_blocks": [
+      "WEB-PROTOCOL-AND-AUTH.md#Core discipline",
+      "WEB-PROTOCOL-AND-AUTH.md#API-key and mTLS attack classes",
+      "WEB-PROTOCOL-AND-AUTH.md#Universal moves",
+      "WEB-PROTOCOL-AND-AUTH.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+        "reason": "Go/Python/TypeScript only; no native code in backend/ scope"
+      },
+      {
+        "block": "CLIENT-SIDE.md#Core discipline",
+        "reason": "client/ is out of scope for this run"
+      },
+      {
+        "block": "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline",
+        "reason": "client/ is out of scope; no desktop/mobile boundary in backend/"
+      },
+      {
+        "block": "AI-AND-LLM.md#Core discipline",
+        "reason": "no model/tool-call boundary found in backend/ recon"
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-h2",
+    "reviewed_paths": [
+      "backend/go/nilocloud/internal/handlers.go",
+      "backend/go/nilocloud/internal/middleware.go",
+      "backend/go/nilocloud/internal/pubsub.go",
+      "backend/go/nilocloud/internal/cloud.go",
+      "backend/go/nilocloud/internal/slack.go",
+      "backend/go/nilocloud/internal/horus/horus.go",
+      "backend/go/nilocloud/internal/gerrit.go"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-h2",
+        "reviewed_paths": [
+          "backend/go/nilocloud/internal/handlers.go",
+          "backend/go/nilocloud/internal/middleware.go",
+          "backend/go/nilocloud/internal/pubsub.go",
+          "backend/go/nilocloud/internal/cloud.go",
+          "backend/go/nilocloud/internal/slack.go",
+          "backend/go/nilocloud/internal/horus/horus.go",
+          "backend/go/nilocloud/internal/gerrit.go"
+        ],
+        "invariant": "nilocloud routes authenticate callers; Slack verification sound",
+        "method": "source",
+        "result": "Subscriptions middleware result discarded; gerrit routes CORS only; Slack signature verified",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "nilocloud/subscriptions-auth-noop",
+      "nilocloud/gerrit-checks-unauthenticated",
+      "nilocloud/shared-robot-token-webhook-unblock",
+      "nilocloud/horus-no-operator-allowlist"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "backend%2Fgo%2Fthoth%2Fhandlers.go%23serverUnaryInterceptor::backend%2Fgo%2Fthoth%2Fhandlers.go%23serverUnaryInterceptor::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+    "canonical_refs": {
+      "surface": "backend/go/thoth/handlers.go#serverUnaryInterceptor",
+      "boundary": "backend/go/thoth/handlers.go#serverUnaryInterceptor",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "ATTACK-CLASSES.md#Access control"
+    },
+    "surface": "gRPC service-to-service identity via metadata",
+    "boundary": "backend/go/thoth/handlers.go#serverUnaryInterceptor",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Access control",
+    "starting_paths": [
+      "backend/go/thoth"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+    "selected_companion_blocks": [
+      "PROTOCOLS-RPC-AND-MESSAGING.md#Core discipline",
+      "PROTOCOLS-RPC-AND-MESSAGING.md#RPC identity and authorization attack classes",
+      "PROTOCOLS-RPC-AND-MESSAGING.md#Universal moves",
+      "PROTOCOLS-RPC-AND-MESSAGING.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+        "reason": "Go/Python/TypeScript only; no native code in backend/ scope"
+      },
+      {
+        "block": "CLIENT-SIDE.md#Core discipline",
+        "reason": "client/ is out of scope for this run"
+      },
+      {
+        "block": "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline",
+        "reason": "client/ is out of scope; no desktop/mobile boundary in backend/"
+      },
+      {
+        "block": "AI-AND-LLM.md#Core discipline",
+        "reason": "no model/tool-call boundary found in backend/ recon"
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-h1",
+    "reviewed_paths": [
+      "backend/go/thoth/handlers.go",
+      "backend/go/ledger/cloudbuild.yaml",
+      "backend/go/auth/auth.go"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-h1",
+        "reviewed_paths": [
+          "backend/go/thoth/handlers.go",
+          "backend/go/ledger/cloudbuild.yaml",
+          "backend/go/auth/auth.go"
+        ],
+        "invariant": "gRPC callers authenticated before metadata identity trusted",
+        "method": "source",
+        "result": "Interceptor trusts plaintext user-firebase-id; deployment reachability unobserved",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "thoth/grpc-identity-from-plaintext-metadata"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "backend%2Frelay%2Frelay.py%23process::backend%2Frelay%2Frelay.py%23print_zpl::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+    "canonical_refs": {
+      "surface": "backend/relay/relay.py#process",
+      "boundary": "backend/relay/relay.py#print_zpl",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "ATTACK-CLASSES.md#Access control"
+    },
+    "surface": "Print relay Pub/Sub to printer and Firestore",
+    "boundary": "backend/relay/relay.py#print_zpl",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Access control",
+    "starting_paths": [
+      "backend/relay"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+    "selected_companion_blocks": [
+      "PROTOCOLS-RPC-AND-MESSAGING.md#Core discipline",
+      "PROTOCOLS-RPC-AND-MESSAGING.md#Broker and queue isolation attack classes",
+      "PROTOCOLS-RPC-AND-MESSAGING.md#Universal moves",
+      "PROTOCOLS-RPC-AND-MESSAGING.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+        "reason": "Go/Python/TypeScript only; no native code in backend/ scope"
+      },
+      {
+        "block": "CLIENT-SIDE.md#Core discipline",
+        "reason": "client/ is out of scope for this run"
+      },
+      {
+        "block": "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline",
+        "reason": "client/ is out of scope; no desktop/mobile boundary in backend/"
+      },
+      {
+        "block": "AI-AND-LLM.md#Core discipline",
+        "reason": "no model/tool-call boundary found in backend/ recon"
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "covered",
+    "agent_id": "hunter-h7",
+    "reviewed_paths": [
+      "backend/relay/relay.py",
+      "backend/relay/terraform/main.tf",
+      "backend/go/ledger/label/label.go",
+      "backend/go/ledger/internal/ops/printing/printing.go"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-h7",
+        "reviewed_paths": [
+          "backend/relay/relay.py",
+          "backend/relay/terraform/main.tf",
+          "backend/go/ledger/label/label.go",
+          "backend/go/ledger/internal/ops/printing/printing.go"
+        ],
+        "invariant": "Only intended publisher reaches relay; ZPL escaped",
+        "method": "source",
+        "result": "Publisher IAM limited; ZPL esc() strips control chars",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [],
+    "unresolved": []
+  }
+]

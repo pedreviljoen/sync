@@ -1,0 +1,92 @@
+{
+  "decision": "needs_validation",
+  "record": {
+    "verdict": "needs_validation",
+    "fingerprint": "harvester-potatoessa-unzip-path-traversal",
+    "title": "Zip-slip in harvester Potatoes SA archive extraction (no containment of entry names)",
+    "description": "The harvester downloads a zip from a URL returned by the third-party api.potatoes.co.za endpoint and extracts every entry using the attacker-controlled entry name in the destination path with no containment check. The path arithmetic does not neutralise traversal. The entry name is prefixed with 'YYMMDD_', which becomes one extra path segment. path.Join then lexically cleans 'tmp/260101_/../../x' to '<parent of tmp>/x', so the prefix consumes one '..' and a second '..' escapes os.TempDir(). Entries with three or more '..' go further up. Absolute entry names stay under the temp dir because of the prefix. Go's archive/zip accepts '..' names by default; no GODEBUG zipinsecurepath setting was found in the repo. The result is an arbitrary file create/truncate and write as the harvester process user, with contents controlled by the zip provider. The directory branch (os.MkdirAll on a relative, prefixed name) is a lesser variant. The source path is fully established. Exploitability depends on the provider being malicious or compromised, on the process user and filesystem permissions in the harvester container, and on what is writable and later consumed. These are deployment facts, so the verdict is needs_validation and not confirmed.",
+    "claimed_root_cause": "unzipFile builds the output path with path.Join(os.TempDir(), date+'_'+f.Name) and calls os.Create and io.Copy without checking that the cleaned path remains inside the intended extraction directory. The date prefix does not prevent escape, because a single prefix segment is cancelled by one '..' during path.Clean.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/harvester/internal/ops/potatoesSA/methods.go",
+        "line": 63,
+        "scope": "getZipFileURL",
+        "description": "The JSON body from the third-party https://api.potatoes.co.za/external/nile/<date> endpoint (authenticated with a Bearer token) is decoded, and ex.URL is returned unvalidated. This is the lower-trust external data feed."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/harvester/internal/ops/potatoesSA/methods.go",
+        "line": 82,
+        "scope": "downloadZipFile",
+        "description": "The provider-supplied URL is fetched with no host or scheme check. The body is written to os.TempDir()/<date>_potatoes_sa.zip (lines 88-94), so the provider controls the full zip contents."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/harvester/internal/ops/potatoesSA/methods.go",
+        "line": 105,
+        "scope": "unzipFile",
+        "description": "zip.OpenReader opens the archive; f.Name for each entry is attacker-controlled. Go's default behaviour does not reject '..' names (the zipinsecurepath GODEBUG setting is not set in the repo)."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/harvester/internal/ops/potatoesSA/methods.go",
+        "line": 125,
+        "scope": "unzipFile",
+        "description": "fp = path.Join(os.TempDir(), 'YYMMDD_' + f.Name). The name '../../x' cleans to '<parent of tmp>/x', escaping the temp dir. There is no prefix or containment check."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/harvester/internal/ops/potatoesSA/methods.go",
+        "line": 126,
+        "scope": "unzipFile",
+        "description": "os.Create(fp) creates or truncates the file at the escaped path, and io.Copy (line 132) writes the entry contents into it. The sink is an arbitrary file write as the harvester user."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/harvester/internal/ops/potatoesSA/types.go",
+        "line": 10,
+        "description": "fileDelimiter is '_' and dateFormat is '060102' (line 8). The prefix is therefore the single segment 'YYMMDD_', which one '..' cancels, so it does not block traversal."
+      },
+      {
+        "file": "backend/go/harvester/internal/ops/potatoesSA/methods.go",
+        "line": 33,
+        "description": "newFileName concatenates the date, the delimiter and the raw entry name with no sanitisation."
+      },
+      {
+        "file": "backend/go/harvester/internal/ops/potatoesSA/methods.go",
+        "line": 118,
+        "description": "The directory branch calls os.MkdirAll on the prefixed relative name, with no containment and no temp-dir anchoring."
+      },
+      {
+        "file": "backend/go/harvester/internal/ops/potatoesSA/potatoes_sa.go",
+        "line": 44,
+        "description": "unzipFile is called directly on the downloaded archive, with no intermediate validation of entry names."
+      },
+      {
+        "file": "backend/go/go.mod",
+        "line": 3,
+        "description": "The toolchain is Go 1.27. The repo has no zipinsecurepath GODEBUG setting, so '..' entry names are accepted by archive/zip."
+      },
+      {
+        "file": "backend/go/harvester/Dockerfile",
+        "line": 21,
+        "description": "The runtime image is docker.io/chromedp/headless-shell:stable. No USER directive was seen in the grep, so the container user and filesystem writability are unresolved from source."
+      }
+    ],
+    "blockers": [
+      "The provider (api.potatoes.co.za) is a contracted partner feed. Whether it is a realistic lower-trust principal, or could be compromised or tampered with in transit, is a threat-model fact not in source.",
+      "The harvester container runtime user, read-only root filesystem setting and writable mounts are not in source (the Dockerfile has no USER directive). These determine what an escaped write can overwrite and what impact follows.",
+      "The runtime Go behaviour (GODEBUG zipinsecurepath) in the deployed binary was not observed, and no code could be run in this review."
+    ],
+    "validation_plan": {
+      "local": "In a throwaway Go test or sandbox with a scratch directory and no network, build a zip containing an entry named '../../probe.txt' and call unzipFile on it with TMPDIR set to a nested scratch subdirectory. Confirm whether the file appears outside that TMPDIR. Also confirm that zip.OpenReader does not return ErrInsecurePath under the repo's Go 1.27 and GODEBUG defaults.",
+      "deployment": "Owner to inspect the harvester Cloud Run or container configuration for the runtime UID, read-only root filesystem and writable mounts (inspect only, no live probing). Also confirm the contractual and TLS trust relationship with the Potatoes SA API and whether the endpoint or token has ever been exposed. If the container runs non-root with a read-only filesystem, downgrade to low or informational. Regardless, fix by rejecting entries whose cleaned path is not inside a dedicated extraction directory, using filepath.IsLocal or filepath.Rel, and by extracting into os.MkdirTemp instead of the shared temp dir."
+    }
+  },
+  "separate_root_causes": [
+    "downloadZipFile (methods.go:74-82) fetches a provider-supplied URL with no scheme or host allowlist, an SSRF-like fetch of a URL from the third-party response. Low value because the response is not returned to the attacker.",
+    "removeFiles (methods.go:141-150) returns after deleting the first map entry, so extracted temp files are left behind. This is a hygiene issue, not a security finding."
+  ]
+}

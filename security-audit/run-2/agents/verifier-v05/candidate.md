@@ -1,0 +1,7 @@
+# Candidate for verifier-v05
+Fingerprint: c7-robot-token-client-copies
+Proposed verdict by hunter: needs_validation
+
+Claim: the shared Nile robot token literal (the same value as the backend constant in backend/go/auth/auth.go ~:30; run-1 finding auth/hardcoded-shared-robot-token, see /Users/pedreviljoen/security-audit-skill/core/run-1/findings.json) is also committed as a literal in three client files: client/market/graphql.config.ts (~:13, Authorization header for a hardcoded staging GAPI URL, X-Platform 1), client/ios/README.md (~:10) and client/ios-native/Farmer App/Nile Farmer/apollo-ios-gen-schema.sh (~:12); all are dev tooling and not bundled (graphql.config.ts is used only by package.json generate:gql; verify it is not imported by src or vite config). Verify each occurrence and line number (never print the value; to compare, use grep -cF with the backend literal inside files and report only same/different), whether the file is shipped in a build artifact (Dockerfile COPY, vite config, ios/android bundles), and whether this is a distinct root cause or only additional locations of the run-1 finding (say so explicitly in the description; keep fingerprint c7-robot-token-client-copies). Decision: the severity/verdict should follow run-1's treatment: whether the literal is live is a deployment fact -> needs_validation unless you can establish otherwise from source.
+
+Use this exact fingerprint in your record.

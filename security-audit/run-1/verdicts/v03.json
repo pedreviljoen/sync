@@ -1,0 +1,76 @@
+{
+  "decision": "needs_validation",
+  "record": {
+    "verdict": "needs_validation",
+    "fingerprint": "thoth/grpc-identity-from-plaintext-metadata",
+    "title": "Internal gRPC services trust caller identity from unauthenticated metadata; reachability depends on Cloud Run exposure",
+    "description": "The shared gRPC server (thoth.Resolver.ServerGRPC) registers no transport credentials and no authentication interceptor, only jetgrpc and serverUnaryInterceptor. serverUnaryInterceptor builds the request user from the caller-supplied metadata key user-firebase-id. The reserved values Robot, RobotFreshMark, RobotInputs, RobotVilla and Unauthed map directly to in-memory users with no credential check. Robot users have PartyTypeAdmin, an AdminProfileID, and for Robot also RoleRobot. Any other value goes to the default branch. There, an optional user-auth-token is only tried via UserFromToken, and a failure is ignored. The code then falls back to ContextWithUser, which loads the user by ID from Firebase (authClient.UserByID) with no credential at all. So the fallback is reachable whenever the token is empty, invalid or mismatched, which means a caller who knows a Firebase UID can act as that user. Source shows no other auth layer: all six services (librarian, ledger, harvester, trader, postman, administrator) call ServerGRPC() and add nothing else in main.go. Their cloudbuild.yaml files deploy with --allow-unauthenticated and no ingress restriction flag. Whether an external attacker can actually reach these ports (Cloud Run ingress setting, any out-of-band IAM change, network path) cannot be established from source. I found no source control that blocks the claim. This is a deployment fact, so the finding stays needs_validation and is not confirmed.",
+    "claimed_root_cause": "Service-to-service identity propagation uses plaintext gRPC metadata (user-firebase-id) that the server accepts as authoritative. Reserved robot IDs need no proof, and the Firebase-lookup fallback runs without verifying the token. Authentication therefore rests entirely on network or IAM isolation, which the deploy config does not enforce (--allow-unauthenticated).",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/thoth/handlers.go",
+        "line": 181,
+        "scope": "(*Resolver).serverUnaryInterceptor",
+        "description": "Reads user-firebase-id and user-auth-token from incoming gRPC metadata, which is attacker-controllable if the service port is reachable."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/thoth/handlers.go",
+        "line": 184,
+        "scope": "(*Resolver).serverUnaryInterceptor switch userFID",
+        "description": "Reserved IDs (Unauthed, Robot, RobotFreshMark, RobotInputs, RobotVilla) are turned into robot or admin users without any credential check."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/thoth/handlers.go",
+        "line": 202,
+        "scope": "(*Resolver).serverUnaryInterceptor default branch",
+        "description": "The token check is optional. If the token is empty, invalid or mismatched, the code falls through to ContextWithUser with the claimed ID."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/thoth/handlers.go",
+        "line": 135,
+        "scope": "ContextWithUser",
+        "description": "Loads the user by claimed Firebase UID (authClient.UserByID) and installs it in the request context via auth.NewContexWithUser, so handlers authorize as that user."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/thoth/handlers.go",
+        "line": 59,
+        "description": "ServerGRPC options contain no grpc.Creds and no auth interceptor; the chain is jetgrpc plus serverUnaryInterceptor only."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 186,
+        "description": "UsrRobot returns an admin-party user (AdminIDNile) with RoleRobot; the other robots (lines 207 to 242) are admin-party too."
+      },
+      {
+        "file": "backend/go/ledger/cmd/server/main.go",
+        "line": 68,
+        "description": "Services use thothResolver.ServerGRPC() unmodified; the same call is in librarian:80, harvester:72, trader:63, postman:76 and administrator:70."
+      },
+      {
+        "file": "backend/go/ledger/cloudbuild.yaml",
+        "line": 45,
+        "description": "Cloud Run deploy uses --allow-unauthenticated with no ingress restriction flag; the same applies to the other services (librarian:40)."
+      },
+      {
+        "file": "backend/go/thoth/handlers.go",
+        "line": 120,
+        "description": "Clients dial with TLS when the host contains 443, which gives encryption but no caller authentication."
+      }
+    ],
+    "blockers": [
+      "Cloud Run ingress setting (all, internal, internal-and-cloud-load-balancing) and any out-of-band IAM or invoker changes for each gRPC service are not in source.",
+      "Whether the service URLs are discoverable and reachable from the internet, and whether a front proxy or VPC controls sit in front of them, is not in source.",
+      "Source cannot show which handlers behind this interceptor expose sensitive operations, so impact depends on a service-by-service check."
+    ],
+    "validation_plan": {
+      "local": "Source review only, no execution: list each gRPC service's handlers and the authorization checks they make on auth.UserFromContext. Check whether any handler treats RoleRobot or an admin PartyType as sufficient for sensitive reads or writes. Optionally write a unit test with an in-process gRPC server (bufconn) built from ServerGRPC that sends user-firebase-id=Robot and confirms the handler context holds the admin robot user. No network and no live Firebase.",
+      "deployment": "The owner should run read-only gcloud queries: gcloud run services describe <svc> --region europe-west4 and check the ingress annotation (run.googleapis.com/ingress), then gcloud run services get-iam-policy <svc> and check whether allUsers holds roles/run.invoker. Use the same project that the deploy cloudbuild.yaml targets. Also check whether the service URLs appear in any public DNS or client config. Do not send live requests with forged metadata. If ingress is 'internal' or the invoker is restricted to the caller services' service accounts, downgrade or reject. If it is 'all' with allUsers invoker, upgrade to confirmed with high or critical severity, since robot admin identity gives cross-tenant access."
+    }
+  }
+}

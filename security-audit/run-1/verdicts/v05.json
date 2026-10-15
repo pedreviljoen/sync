@@ -1,0 +1,70 @@
+{
+  "decision": "needs_validation",
+  "record": {
+    "verdict": "needs_validation",
+    "fingerprint": "backend/functions/firebase/functions/functions-env-committed-api-keys",
+    "title": "Firebase functions env files and runtimeconfig hold NILE_API_KEY values in the source tree",
+    "description": "The files .env.nile-production, .env.nile-staging and .runtimeconfig.json in backend/functions/firebase/functions each hold a NILE-API-KEY credential (key names NILE_API_KEY and nile_api.key; values not reproduced here). The only ignore file on the path, functions/.gitignore, lists only 'lib', and the repo root .gitignore has no .env* or .runtimeconfig.json rule. The Sapling treestate (.sl/treestate) records all three file names, so they are very likely tracked. The only in-repo consumer, priceMailer.ts, is commented out of index.ts. No code under backend/ validates the NILE-API-KEY header or serves the Jobs/sendPriceMailer endpoint it calls, so what the key authenticates to, and whether it is live, cannot be established from this scope.",
+    "claimed_root_cause": "Environment secrets for a server-to-server call (NILE-API-KEY header to the API Jobs/sendPriceMailer endpoint) are stored as plaintext files in the repository working tree and are not excluded by any ignore rule, rather than being held in Secret Manager or a git-ignored local file.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/functions/firebase/functions/.env.nile-production",
+        "line": 4,
+        "scope": "dotenv file for the nile-production Firebase functions deployment",
+        "description": "Plaintext NILE_API_KEY next to NILE_API_URL pointing at the production API host. Readable by anyone with repository access."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/functions/firebase/functions/src/config.ts",
+        "line": 3,
+        "scope": "config module",
+        "description": "NILE_API_KEY is read from process.env, which Firebase populates from the .env.<project> file at deploy time."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/functions/firebase/functions/src/priceMailer.ts",
+        "line": 12,
+        "scope": "sendPrices()",
+        "description": "The key is sent as the NILE-API-KEY header on PUT Jobs/sendPriceMailer. All exports are commented out in src/index.ts lines 8 and 15-17, so this is currently not deployed from this source."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/functions/firebase/functions/.env.nile-staging",
+        "line": 3,
+        "description": "Staging NILE_API_KEY in plaintext."
+      },
+      {
+        "file": "backend/functions/firebase/functions/.runtimeconfig.json",
+        "line": 3,
+        "description": "Legacy runtime config nile_api.key credentials in plaintext; lines 3-4 hold values."
+      },
+      {
+        "file": "backend/functions/firebase/functions/.gitignore",
+        "line": 1,
+        "description": "Contains only 'lib'; none of the three secret files is ignored."
+      },
+      {
+        "file": "backend/functions/firebase/functions/src/index.ts",
+        "line": 8,
+        "description": "priceMailer import and exports are commented out (lines 8 and 15-17), so the consumer is disabled."
+      },
+      {
+        "file": ".gitignore",
+        "line": 1,
+        "description": "Root .gitignore (core/.gitignore) ignores .firebaserc, .firebaseConfig.json and .firebase, but has no .env* or .runtimeconfig.json pattern."
+      }
+    ],
+    "blockers": [
+      "Sapling tracking is only inferred: .sl/treestate lists the three filenames, but whether they are committed in history (or only present in the working copy) was not confirmed without running sl.",
+      "The receiving API (Jobs/sendPriceMailer, NILE-API-KEY validation) is not in backend/ scope, so the key's privileges and whether it is currently valid or rotated cannot be determined from source.",
+      "The only consumer function is disabled, which lowers the likelihood that the key is still active."
+    ],
+    "validation_plan": {
+      "local": "Repository owner runs 'sl files' or 'sl log -f' on the three paths to confirm they are tracked and in how many commits, and checks who can read the repo.",
+      "deployment": "Owner checks whether the production and staging NILE_API_KEY values are still accepted by the API (via the key store or audit logs, not a live probe). If active, rotate them, move them to Secret Manager or a git-ignored file, add .env.* and .runtimeconfig.json to .gitignore, and purge them from history."
+    }
+  },
+  "separate_root_causes": []
+}

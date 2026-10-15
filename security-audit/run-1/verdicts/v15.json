@@ -1,0 +1,142 @@
+{
+  "decision": "confirmed",
+  "record": {
+    "verdict": "confirmed",
+    "fingerprint": "H5-setuser-self-role-escalation",
+    "title": "Any authenticated user can set roles and password on a user account via the SetUser form (self-service role escalation, cross-user password reset)",
+    "description": "The Form and FormNew GraphQL mutations authorize FormTypeSetUser with an OR of (caller is Admin party type) or (caller's email equals the client-supplied Email form field). The attacker controls that email field, so the check passes for any authenticated user by sending their own email. The same request also carries a separate client-supplied hidden firebase-ID field, a roles multiselect and a password field. The email value is validated as an email but is not tied to the target user ID. handleSetUser passes the fields through customers.UserInput to administrator.UserUpdateInput. The administrator service performs no authorization of its own. It loads the user by the client-supplied ID, calls UpdateUserPassword on that ID, rewrites the roles of that user's DB email via userroles.MatchTx with the client-supplied role list, and pushes the resulting claims to the auth service. The access.Has(ProfileRoles, Write) permission is used only to render the role field in the form UI (customers/user.go:54) and is never enforced on submit. A normal buyer or seller can therefore grant themselves privileged roles (for example RoleSuper) and reset any other user's password by supplying any known Firebase UID.",
+    "root_cause": "The authorization gate for FormTypeSetUser compares the caller's identity to a client-controlled email field rather than to the target user (firebase ID) being modified. No role-assignment permission check (permissions.ProfileRoles) is enforced server-side, and the administrator Set/Update path trusts its caller completely.",
+    "intended_behavior": "A user may update only their own non-privileged profile attributes (name, mobile, theme, market metric, possibly their own password) and the target ID must be forced to the caller's UID. Role changes must require an admin with the ProfileRoles write permission, enforced server-side. Password or role changes for other users must be admin-only.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "api/internal/graph/schema.resolvers.go",
+        "line": 1146,
+        "scope": "mutationResolver.Form (GraphQL mutation, any authenticated user)",
+        "description": "Starts with chks = [PartyTypes(Admin)]. In the FormTypeSetUser case (1149-1153) it appends auth.Email(f.Value) for the client-supplied field with ID UserEmail. auth.Checks passes if ANY check passes (auth/checks.go:40), so a caller supplying their own email passes. FormNew has the identical logic at ~1218-1224."
+      },
+      {
+        "kind": "propagation",
+        "file": "api/internal/graph/form_input.go",
+        "line": 130,
+        "scope": "formInput / handleSetUser",
+        "description": "Dispatches FormTypeSetUser to handleSetUser (defined ~515), which calls customers.UserInput(fields) and, for a non-new user (firebase ID present), builds ToUserUpdateInput and calls Administrator.Set(InpUserUpdate)."
+      },
+      {
+        "kind": "propagation",
+        "file": "api/internal/graph/customers/user.go",
+        "line": 166,
+        "scope": "UserInput",
+        "description": "Parses the client-supplied firebase ID (userFirebaseID), profileID, password, name, mobile and roles (userRole -> getRoleType) with no role or permission validation. The email field is parsed but is not used as the update target (comment at ~line 223: 'Email is user id, it will be ignored')."
+      },
+      {
+        "kind": "propagation",
+        "file": "administrator/internal/ops/ops.go",
+        "line": 42,
+        "scope": "Resolver.Set -> maybeUpdateUsers",
+        "description": "Administrator Set dispatches UserUpdateInput to users.Update with no auth.Checks on the caller (grep of administrator for auth checks finds none on this path)."
+      },
+      {
+        "kind": "sink",
+        "file": "administrator/internal/ops/users/update.go",
+        "line": 66,
+        "scope": "updateTx",
+        "description": "Looks up the user by the client-supplied ID (line 56), calls client.UpdateUserPassword(ID, password) (66), then userroles.MatchTx(userDB.Email, input.Roles()) (85), which inserts and deletes rows in user_roles for the target user. prepareClaimsForUserMutation (~92) then pushes the new roles to Firebase custom claims after commit."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "api/internal/graph/schema.resolvers.go",
+        "line": 1149,
+        "description": "FormTypeSetUser check is OR(admin party type, caller email equals client-supplied email field). The email is not bound to the target user ID."
+      },
+      {
+        "file": "api/internal/graph/schema.resolvers.go",
+        "line": 1221,
+        "description": "FormNew duplicates the same weak check, so the sibling mutation is equally affected."
+      },
+      {
+        "file": "auth/checks.go",
+        "line": 40,
+        "description": "auth.Checks returns nil if ANY check passes, so the Email check alone is sufficient."
+      },
+      {
+        "file": "api/internal/graph/customers/user.go",
+        "line": 54,
+        "description": "access.Has(permissions.ProfileRoles, Write) only controls whether the role field is rendered or disabled in the form; it is not enforced on submit. The only other use of ProfileRoles is its definition in access/permissions/permissions.go:28."
+      },
+      {
+        "file": "api/internal/graph/customers/user.go",
+        "line": 166,
+        "description": "UserInput accepts the firebase ID, roles and password from client fields with no checks beyond format validation."
+      },
+      {
+        "file": "administrator/internal/ops/users/update.go",
+        "line": 85,
+        "description": "Roles are replaced for userDB.Email, resolved from the client-supplied ID rather than the caller. UpdateUserPassword at line 66 is also keyed to that ID. validateUpdateInput only checks that the user exists and that ID and profile ID are present."
+      },
+      {
+        "file": "administrator/internal/ops/users/users.go",
+        "line": 80,
+        "description": "Claims are rebuilt from the DB roles (auth.WithUserUpdate(... user.Roles)) and pushed to the auth service, so the escalated roles take effect on the user's token/claims."
+      },
+      {
+        "file": "access/access.go",
+        "line": 48,
+        "description": "RoleSuper grants all permissions except tech-only ones, which demonstrates that role values drive authorization decisions."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "Attacker needs any valid authenticated session (any party type: buyer, seller or admin)."
+      },
+      {
+        "kind": "data_state",
+        "description": "For self-escalation the attacker needs their own firebase UID and profile ID (available to them via the SetUser form or their token). To reset another user's password or roles they need that user's firebase UID, which is not a secret but is not necessarily easy to obtain."
+      },
+      {
+        "kind": "system_configuration",
+        "description": "Assumes the auth service applies the pushed custom claims to subsequent tokens, which is the evident design. The deployed token refresh behaviour was not observed."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "A low-privilege authenticated buyer or seller who wants admin-level roles on their own account, or who wants to reset another user's password.",
+      "payloads": [
+        "mutation { form(input:{type:SetUser, fields:[{id:1,value:\"<own email>\"},{id:-3,value:\"<own firebase uid>\"},{id:-2,value:\"<own profile id>\"},{id:7,values:[\"Super\"]}]}) { ... } }"
+      ],
+      "instructions": [
+        "Authenticate as an ordinary buyer or seller.",
+        "Send the Form (or FormNew) mutation with type SetUser, the caller's own email in field 1 (to satisfy auth.Email), the caller's own firebase UID in field -3, the caller's profile ID in field -2, and the desired role(s) in field 7.",
+        "Refresh the token so the new claims are issued.",
+        "To target another user, set field -3 to that user's UID and field 2 to the new password while still sending the attacker's own email in field 1."
+      ],
+      "observed_result": "Source-level observation only; nothing was executed. The only gate is OR(Admin, email equals attacker-supplied field), and the attacker controls the field. No downstream layer (customers.UserInput, administrator.Set, users.Update, userroles.MatchTx) re-checks the caller or the ProfileRoles permission, and the target comes from a client-supplied ID."
+    },
+    "remediation": {
+      "strategy": "Server-side enforcement: for FormTypeSetUser in both Form and FormNew, allow the call only if the caller is an admin or the supplied firebase ID equals the caller's own UID. Ignore the roles field unless access.Has(ctx, permissions.ProfileRoles, permissions.Write) is true. Require admin, or a current-password or re-auth flow, to change a password, and never for other users. Ideally add an authorization check in the administrator service as defence in depth.",
+      "code_changes": [
+        {
+          "file_name": "api/internal/graph/customers/user.go",
+          "fixed_code": "// After UserInput(): enforce in handleSetUser\nif !access.Has(ctx, permissions.ProfileRoles, permissions.Write) { user.roles = nil /* keep existing roles */ }\ncu := auth.UserFromContext(ctx)\nif cu.PartyType != users.PartyTypeAdmin && user.id != cu.UID { return errors.New(\"not authorized\", codes.CodeUnauthorized) }"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "high",
+        "reason": "Any authenticated user can trigger it with a single GraphQL mutation. The only extra inputs are their own email and UID, and no unusual preconditions were found in source. Deployment facts such as token refresh and any WAF were not observed."
+      },
+      "impact": {
+        "score": "high",
+        "reason": "Defeats role-based authorization. A user can grant themselves privileged roles (for example Super), and can reset the password of any user whose UID they know, which is account takeover of targeted users. It is not rated critical because it is not unauthenticated and cross-account takeover needs a known target UID."
+      },
+      "overall_severity": "high"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "Every hop was re-read. The OR check, the client-controlled email, the absence of any permission enforcement on submit and the absence of authorization in the administrator service were all verified directly. Runtime effects such as claims refresh were not executed."
+    }
+  },
+  "separate_root_causes": []
+}

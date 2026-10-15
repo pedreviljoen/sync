@@ -1,0 +1,181 @@
+{
+  "decision": "confirmed",
+  "record": {
+    "verdict": "confirmed",
+    "fingerprint": "H5-resolvers-no-authz-read",
+    "title": "Read resolvers LogisticsDoc, TableDialog, ShipmentDispatchDialog (and seller-side QualityReport) lack any ownership check, exposing other tenants' shipment data to any authenticated user",
+    "description": "Several GraphQL Query resolvers in backend/go/api/internal/graph/schema.resolvers.go take a client-supplied profileID or shipmentID and return data without any role check or ownership check. The Ledger.Shipments read path has no caller scoping. Per resolver: LogisticsDoc (:2786) has no auth.Checks, uses the client profileID directly as a ledger filter, and returns another seller's packing list including buyer shipping addresses. TableDialog (:2922) has no auth.Checks and no ShipmentAuthorized/IsParty check, and returns settlement, payment and charge dialogs with amounts and shipment names for any shipment ID. ShipmentDispatchDialog (:2994) has no checks and returns shipment name, case count and the destination street and city for any shipment ID. QualityReport (:4245) checks party type only (Seller or Admin, Buyer blocked) with no ownership check, so any Seller can read another party's inspection report, seller label and delivery address. Not established as a meaningful leak: ShipmentTransactions (:2880) has no authz but shipmentTransactionsTable skips any transaction not involving the caller's profile (accounts.go:135) and shipmentTotalsInfo is admin-only, so it only leaks the shipment name and open state. DocumentNumber (:4203) is restricted to Seller/Admin and returns only a document number; it has no ownership check, but the impact is trivial. Authenticated-user impact only; anonymous reach is a separate candidate.",
+    "root_cause": "Authorization on these resolvers is either absent or limited to party type. None compare shipment.IsParty(usr.ProfileID) (the existing ShipmentAuthorized helper in auth_checks.go:111) or auth.PartyTypeForID(profileID, ...) against the requested resource. The only global control is AuthOperation (auth/auth.go:373), which authenticates the token but does not authorize per resource, and the ledger Shipments fetch (ledger/internal/ops/ops.go:971) applies no caller scoping.",
+    "intended_behavior": "Sibling resolvers (Shipments :2808, TableGroup, SellerSetup) gate on auth.PartyTypeForID(profileID, ...) or admin, and document resolvers use SourceDocAuthorized/ShipmentAuthorized. These read resolvers should require the caller to be admin or a party to the shipment, or the owner of the requested profileID.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2786,
+        "scope": "queryResolver.LogisticsDoc",
+        "description": "Authenticated Buyer/Seller supplies arbitrary profileID and date. No auth.Checks and no comparison with the caller's profile."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2792,
+        "scope": "queryResolver.LogisticsDoc",
+        "description": "The client profileID goes straight into ledger.SmdProfileIDs for the shipment filter."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/shipments.go",
+        "line": 2597,
+        "scope": "Resolver.fetchShipmentsAndProfiles",
+        "description": "Fetches shipments from Ledger.Shipments (ledger/internal/ops/ops.go:971, no caller scoping) and the associated buyer and seller profiles."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/internal/graph/logisticsdocs.go",
+        "line": 74,
+        "scope": "sellerPackingListTables",
+        "description": "Builds the packing list for the foreign profile, including products and buyer shipping address, and returns it to the caller."
+      },
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2922,
+        "scope": "queryResolver.TableDialog",
+        "description": "Any authenticated user supplies shipmentID and a dialog type. No auth.Checks and no IsParty check."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/internal/graph/payments.go",
+        "line": 163,
+        "scope": "prepareSettleOrder / paymentDialog / chargeDialog / payCredit",
+        "description": "Settlement and payment dialogs render shipment totals, due amounts and seller or buyer settlement figures for any shipment ID."
+      },
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2994,
+        "scope": "queryResolver.ShipmentDispatchDialog",
+        "description": "Any authenticated user supplies shipmentID. No checks."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/internal/graph/shipments.go",
+        "line": 6929,
+        "scope": "shipmentDispatchDialog",
+        "description": "Returns shipment name, case count and the buyer or seller destination street and city for another tenant's shipment."
+      },
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 4245,
+        "scope": "queryResolver.QualityReport",
+        "description": "Party-type check only (Seller or Admin). Any Seller supplies any shipmentID."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/internal/graph/quality.go",
+        "line": 505,
+        "scope": "qualityReportScreenTabs",
+        "description": "Fetches the shipment and its quality reports by ID without an ownership check and returns inspection results, seller label and delivery address."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2786,
+        "description": "LogisticsDoc body has no auth call at all."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2922,
+        "description": "TableDialog uses usr only to fetch the admin profile and has no authorization."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2994,
+        "description": "ShipmentDispatchDialog has no authorization."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 4245,
+        "description": "QualityReport checks only the Seller/Admin party type."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2808,
+        "description": "Comparison baseline: sibling Shipments, TableGroup and SellerSetup do apply party/profile checks."
+      },
+      {
+        "file": "backend/go/api/internal/graph/auth_checks.go",
+        "line": 111,
+        "description": "ShipmentAuthorized (IsParty) exists but is not called by these resolvers."
+      },
+      {
+        "file": "backend/go/api/internal/graph/shipments.go",
+        "line": 59,
+        "description": "fetchLedgerShipment fetches by ID with no identity scoping."
+      },
+      {
+        "file": "backend/go/ledger/internal/ops/ops.go",
+        "line": 971,
+        "description": "Ledger Shipments applies no caller scoping."
+      },
+      {
+        "file": "backend/go/api/internal/graph/accounts.go",
+        "line": 135,
+        "description": "Counter-evidence: ShipmentTransactions filters transactions to the caller's profile, so it is excluded from the confirmed set."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 373,
+        "description": "AuthOperation only authenticates and applies platform checks; no resource authorization."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "Valid authenticated Buyer or Seller account. Admin is not required. QualityReport additionally needs a Seller account."
+      },
+      {
+        "kind": "data_state",
+        "description": "TableDialog, ShipmentDispatchDialog and QualityReport need a victim shipment KSUID, which is not guessable and must be obtained from another channel. LogisticsDoc needs only a victim profileID (an int64, enumerable) and a dispatch date with matching created-status shipments."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "An authenticated seller or buyer on the platform queries another tenant's profile or shipment.",
+      "payloads": [
+        "query { logisticsDoc(type: <SELLER_PACKING_LIST enum>, profileID: <victim profile id>, date: \"<dispatch date>\") { ... } }",
+        "query { tableDialog(type: SETTLEMENT, shipmentID: \"<victim shipment id>\") { ... } }",
+        "query { shipmentDispatchDialog(shipmentID: \"<victim shipment id>\") { ... } }"
+      ],
+      "instructions": [
+        "Authenticate as an ordinary seller or buyer.",
+        "Call logisticsDoc with another seller's profileID and a dispatch date.",
+        "Call tableDialog or shipmentDispatchDialog with a shipment ID belonging to another tenant."
+      ],
+      "observed_result": "Source-level observation, not a runtime result: no check on any code path compares the caller's profile with the requested profile or shipment, and the data layer does not scope by caller, so the data is returned to any authenticated caller."
+    },
+    "remediation": {
+      "strategy": "Add per-resource authorization to each resolver. For LogisticsDoc, require auth.PartyTypeForID(profileID, Seller) or Admin. For TableDialog, ShipmentDispatchDialog, QualityReport, ShipmentTransactions and DocumentNumber, call ShipmentAuthorized(ctx, shipment) unless the caller is Admin. Consider restricting the settlement and payment dialogs to Admin.",
+      "code_changes": []
+    },
+    "severity": {
+      "likelihood": {
+        "score": "medium",
+        "reason": "Any authenticated account can call these. LogisticsDoc is enumerable through integer profile IDs, but the shipment-ID-based resolvers need an unguessable KSUID that must leak elsewhere."
+      },
+      "impact": {
+        "score": "medium",
+        "reason": "Cross-tenant read of packing lists, buyer addresses, settlement and payment amounts and inspection reports. There is no write or code execution and no secrets."
+      },
+      "overall_severity": "medium"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "Every cited resolver was re-read and no authorization or scoping exists on the path (resolver, helper, ledger and middleware). Deployment facts were not needed for the missing check itself."
+    }
+  },
+  "separate_root_causes": [
+    "auth/auth.go:404 publicOperations allowlist is keyed on the client-supplied operation name (the anonymous bypass covered by a separate candidate)"
+  ]
+}

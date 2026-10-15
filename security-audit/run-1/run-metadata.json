@@ -1,0 +1,41 @@
+{
+  "run_id": "core-run-1",
+  "repo": "core",
+  "target": "/Users/pedreviljoen/Documents/work/nile/core",
+  "source_ref": {
+    "commit": null,
+    "note": "not a git repository (Sapling .sl checkout); worktree state unknown"
+  },
+  "profile": "quick",
+  "scope_paths": [
+    "backend/"
+  ],
+  "budget": null,
+  "execution_policy": "sandboxed-source-and-local-only",
+  "selected_companion_files": [
+    "WEB-PROTOCOL-AND-AUTH.md",
+    "PROTOCOLS-RPC-AND-MESSAGING.md",
+    "SUPPLY-CHAIN-AND-RELEASE.md",
+    "DATA-ISOLATION-AND-LIFECYCLE.md",
+    "RESOURCE-EXHAUSTION-AND-AVAILABILITY.md"
+  ],
+  "prior_runs": [],
+  "shared_file_owners": {
+    "run-metadata.json": "parent",
+    "architecture.md": "parent",
+    "coverage-ledger.json": "parent",
+    "findings.json": "parent",
+    "REPORT.md": "parent",
+    "FINDINGS-DETAIL.md": "parent",
+    "NEEDS-VALIDATION.md": "parent"
+  },
+  "run_status": "complete",
+  "coverage_note": "quick profile, backend/ scope only: partial coverage; 14 deferred units; verifier checks not appended to ledger local_checks",
+  "agents_spent": {
+    "recon": 4,
+    "hunters": 7,
+    "critic": 1,
+    "verifiers": 21,
+    "total": 33
+  }
+}

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "backend%2Ffunctions%2Ffirebase%2Ffunctions%2Fsrc%2Fpdf.ts%23generatePdf::backend%2Ffunctions%2Ffirebase%2Ffunctions%2Fsrc%2FsignupBlocking.ts%23beforeUserCreated::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Injection",
+    "hunter": "h4"
+  },
+  {
+    "id": "backend%2Fgo%2Fapi%2Fcmd%2Fserver%2Fmain.go%23ListenAndServe::backend%2Fgo%2Fapi%2Fcmd%2Fserver%2Fmain.go%23handler%20limits::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Resource%20and%20file%20handling",
+    "hunter": "h7"
+  },
+  {
+    "id": "backend%2Fgo%2Fapi%2Finternal%2Fgraph%23resolvers::backend%2Fgo%2Fapi%2Finternal%2Fgraph%2Fauth_checks.go%23Authorized::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+    "hunter": "h5"
+  },
+  {
+    "id": "backend%2Fgo%2Fauth%2Fauth.go%23userFromIDToken::backend%2Fgo%2Fauth%2Fauth.go%23AuthOperation::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+    "hunter": "h1"
+  },
+  {
+    "id": "backend%2Fgo%2Fgerrit%2Ffunctions%2Fwebhook%2Fwebhook.go%23Handle::backend%2Fgo%2Fgerrit%2Fterraform%2Ffunctions.tf%23allUsers%20invoker::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+    "hunter": "h3"
+  },
+  {
+    "id": "backend%2Fgo%2Fharvester%2FpotatoesSA%2Fmethods.go%23unzip::backend%2Fgo%2Ffortknox%2Ffortknox.go%23Encrypt::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Resource%20and%20file%20handling",
+    "hunter": "h6"
+  },
+  {
+    "id": "backend%2Fgo%2Fnilocloud%2Finternal%2Fhandlers.go%23routes::backend%2Fgo%2Fnilocloud%2Finternal%2Fmiddleware.go%23authMiddleware::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+    "hunter": "h2"
+  },
+  {
+    "id": "backend%2Fgo%2Fthoth%2Fhandlers.go%23serverUnaryInterceptor::backend%2Fgo%2Fthoth%2Fhandlers.go%23serverUnaryInterceptor::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+    "hunter": "h1"
+  },
+  {
+    "id": "backend%2Frelay%2Frelay.py%23process::backend%2Frelay%2Frelay.py%23print_zpl::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+    "hunter": "h7"
+  }
+]

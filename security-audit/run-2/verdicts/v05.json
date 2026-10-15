@@ -1,0 +1,75 @@
+{
+  "decision": "needs_validation",
+  "record": {
+    "fingerprint": "c7-robot-token-client-copies",
+    "verdict": "needs_validation",
+    "title": "Shared Nile robot token literal committed in three client dev-tooling files",
+    "description": "The same literal as the backend robotToken constant (backend/go/auth/auth.go:30, run-1 finding auth/hardcoded-shared-robot-token) is committed in three client files. A grep -cF of the backend literal gave exactly one match in each file, so all three are the same value as the backend. Occurrences: client/market/graphql.config.ts:13 (Authorization Bearer header; X-Platform 1 at line 14), client/ios/README.md:10 (swift-graphql CLI example command) and client/ios-native/Farmer App/Nile Farmer/apollo-ios-gen-schema.sh:12 (--header Authorization). This is NOT a distinct root cause: these are additional locations of the run-1 hardcoded-shared-robot-token finding (secret committed to source). It only adds exposure to anyone with read access to the client tree. None of the three is shipped in a runtime bundle. graphql.config.ts is referenced only by the package.json generate:gql script (graphql-codegen --config) and by tsconfig.node.json include. It is not imported from src, vite.config.mts or tsconfig.app.json. The market Dockerfile does 'COPY . .' in the builder stage (line 9), but the final nginx stage copies only /app/build (line 103), so the file does not reach the runtime image. The iOS README and shell script are docs and tooling. Whether the literal is the live production secret is a deployment fact not visible in source. The impact is that of the run-1 finding (platform-admin robot access via the public GraphQL auth middleware) if live. Git tracking could not be checked, since core is not a git repository here.",
+    "claimed_root_cause": "A shared robot bearer token was pasted into client developer tooling and docs (codegen config, iOS README, Apollo schema script) instead of being read from an env var or secret store, duplicating the backend hardcoded-secret exposure.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "client/market/graphql.config.ts",
+        "line": 13,
+        "scope": "graphql-codegen config for the market app",
+        "description": "Literal robot Bearer token placed in the Authorization header for introspecting a hardcoded staging GAPI URL; run via package.json generate:gql."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/ios/README.md",
+        "line": 10,
+        "scope": "iOS README swift-graphql command",
+        "description": "Same literal in a documented CLI --header argument; developers copy and paste it, and it sits in the repo."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/ios-native/Farmer App/Nile Farmer/apollo-ios-gen-schema.sh",
+        "line": 12,
+        "scope": "Apollo iOS schema download script",
+        "description": "Same literal passed as an Authorization header when the script downloads the schema."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/auth/auth.go",
+        "line": 30,
+        "scope": "auth package constant robotToken (via GetRobotToken)",
+        "description": "The backend constant is the same value. If it is live, anyone who can read the client repo holds a credential accepted as the platform-admin robot (see run-1 auth/hardcoded-shared-robot-token)."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "client/market/graphql.config.ts",
+        "line": 13,
+        "description": "Authorization header holds the robot token literal (grep -cF against the backend literal: same)."
+      },
+      {
+        "file": "client/ios/README.md",
+        "line": 10,
+        "description": "Command example includes the same literal (same as the backend)."
+      },
+      {
+        "file": "client/ios-native/Farmer App/Nile Farmer/apollo-ios-gen-schema.sh",
+        "line": 12,
+        "description": "--header Authorization carries the same literal (same as the backend)."
+      },
+      {
+        "file": "client/market/Dockerfile",
+        "line": 103,
+        "description": "The final stage copies only /app/build into nginx, so graphql.config.ts (copied in the builder stage at line 9) is not in the runtime image."
+      },
+      {
+        "file": "client/market/package.json",
+        "line": 8,
+        "description": "generate:gql is the only consumer of graphql.config.ts; there are no imports from src or vite config."
+      }
+    ],
+    "blockers": [
+      "Source cannot show whether the committed literal is the live production/staging secret, already rotated, or a dev-only value (deployment fact).",
+      "Git tracking and history of the three files could not be checked (core has no .git in this environment), so it is not known whether the secret was ever pushed to a shared remote."
+    ],
+    "validation_plan": {
+      "local": "Source-only follow-up: confirm via the repo host (not a live probe) that the three files are tracked and check history for the first commit introducing the literal. Confirm the iOS build does not embed apollo-ios-gen-schema.sh or the README.",
+      "deployment": "Owner-observed check, no live probe: compare the committed value with the current token in Secret Manager or deploy configuration (compare hashes, not printed values) and check the staging GAPI URL in graphql.config.ts against it. If it matches, rotate the token once for the backend, pdf.ts, loadtests and these client files together, and replace the client copies with an env var read (for example GAPI_TOKEN) in graphql.config.ts, the shell script and the README."
+    }
+  }
+}

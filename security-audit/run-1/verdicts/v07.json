@@ -1,0 +1,84 @@
+{
+  "decision": "needs_validation",
+  "record": {
+    "fingerprint": "nilocloud/gerrit-checks-unauthenticated",
+    "verdict": "needs_validation",
+    "title": "nilocloud Gerrit Checks endpoints (/v1/gerrit/checks, /checks/log, /checks/run) have no authentication",
+    "description": "Source-level: the three Gerrit Checks routes are wrapped only by gerritCorsMiddleware, which just sets CORS headers (and CORS is not an access control for non-browser callers). Every other sensitive route in the same mux uses authMiddleware (robot token). The nilocloud Cloud Run service is deployed with --allow-unauthenticated. An unauthenticated caller can therefore (a) POST /v1/gerrit/checks/run?change=N&patchset=M to enqueue a verify Cloud Task, which first deletes queued verify tasks whose names start with change-N-ps-, marks pending runs for that change stale in Firestore, then enqueues a new task and rewrites GCS state with a bumped attempt number; (b) GET the per-patchset checks state JSON; (c) GET check logs by externalId. Impact is bounded by source: the ref is always built server-side by RefForChange as refs/changes/NN/N/M from validated positive ints, the task is the same verify that webhook.go:169 and reconcile.go:121 already trigger for every uploaded patchset, and ValidExternalID restricts the log id to the anchored regex ^\\d+-\\d+-\\d+-(known check name)$, so there is no path traversal in LogPath. The verify task runs checks (codegen, lint, test) on whatever the Gerrit change contains, but anyone able to upload a change already gets that automatically, so forged verifies do not create new code-execution reach for an outsider. Real effects are limited to unauthenticated CI cost and queue abuse, cancel-and-replace of legitimate queued verifies and attempt counter churn (integrity and availability of CI status), and disclosure of CI state and log content. Whether this is a meaningful boundary violation depends on facts not in source: network exposure of the service (Cloud Run ingress, any fronting proxy or IAP), whether the checks bucket logs contain sensitive output, and whether the Gerrit instance itself is internet reachable.",
+    "claimed_root_cause": "Gerrit checks routes were registered without authMiddleware or any other identity or authorization check, and rely on CORS (Allow-Origin https://code.nile.ag) as if it were access control, on a service deployed with --allow-unauthenticated.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/nilocloud/internal/handlers.go",
+        "line": 26,
+        "scope": "Resolver.ServeHTTP",
+        "description": "Routes /v1/gerrit/checks, /checks/log, /checks/run (lines 26-28) are registered with gerritCorsMiddleware only; no authMiddleware, unlike the webhook, events and subscription routes above them."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/middleware.go",
+        "line": 24,
+        "scope": "gerritCorsMiddleware",
+        "description": "Only sets Access-Control-* headers and short-circuits OPTIONS; performs no authentication or origin enforcement on the actual request."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/gerrit.go",
+        "line": 78,
+        "scope": "Resolver.gerritChecksRunHandler",
+        "description": "Requires POST and positive integer change and patchset query params (lines 85-103), then calls task.CreateVerify at line 115 without any caller identity check."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/gerrit/task/checks.go",
+        "line": 64,
+        "scope": "CreateVerify",
+        "description": "deleteQueuedTasks removes queued verify tasks for the change (line 64), a new Cloud Task is enqueued, queued runs are superseded in Firestore (line 83), and initial SCHEDULED state is written to GCS (line 93). Ref is built by RefForChange from integers only."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/nilocloud/internal/gerrit.go",
+        "line": 151,
+        "scope": "Resolver.gerritChecksLogHandler",
+        "description": "Reads and returns GCS log object for an id that passes the anchored ValidExternalID regex (line 137); the checks state handler similarly reads state at line 48. Both return data to any caller."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/nilocloud/internal/handlers.go",
+        "line": 10,
+        "description": "Contrast: sentry/grafana webhooks and subscriptions are wrapped in authMiddleware; the Gerrit checks routes at lines 26-28 are not."
+      },
+      {
+        "file": "backend/go/nilocloud/cloudbuild.yaml",
+        "line": 45,
+        "description": "nilocloud is deployed to Cloud Run with --allow-unauthenticated (deployment config as written; live IAM and ingress not verified)."
+      },
+      {
+        "file": "backend/go/gerrit/checks/checks.go",
+        "line": 77,
+        "description": "externalIDRe is anchored and limited to digits plus a known check-name alternation, so log reads cannot traverse paths."
+      },
+      {
+        "file": "backend/go/gerrit/task/task.go",
+        "line": 270,
+        "description": "RefForChange builds the ref from integers only, so an attacker cannot select an arbitrary ref or repo."
+      },
+      {
+        "file": "backend/go/gerrit/functions/webhook/webhook.go",
+        "line": 169,
+        "description": "The same CreateVerify is invoked automatically for every uploaded patchset, so the forged trigger adds no new code-execution capability for outsiders."
+      }
+    ],
+    "blockers": [
+      "Cloud Run ingress and IAM for nilocloud (and any fronting proxy or IAP) are not visible in source; --allow-unauthenticated in cloudbuild.yaml may be overridden or the service may sit behind an internal-only network.",
+      "Sensitivity of content in the GCS checks bucket (state JSON and full check output logs) is unknown; it may include source snippets or env-derived output.",
+      "Cloud Tasks queue and agent concurrency or cost limits that bound the abuse impact are not in source."
+    ],
+    "validation_plan": {
+      "deployment": "Owner check, read-only: run gcloud run services describe nilocloud --region europe-west4 and inspect ingress annotation and the IAM policy for allUsers roles/run.invoker; confirm whether code.nile.ag or the service URL is reachable from outside the corporate network. Review a sample of objects in the checks bucket for sensitive content. Do not probe the live service with forged requests against real changes.",
+      "local": "Source-only: confirm via a unit test using httptest against Resolver.ServeHTTP with a stubbed task client that an unauthenticated POST to /v1/gerrit/checks/run reaches CreateVerify; then decide on a fix such as requiring a Gerrit-issued or shared-secret token, a Google ID token check, or restricting ingress."
+    }
+  },
+  "separate_root_causes": []
+}

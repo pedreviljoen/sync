@@ -1,0 +1,63 @@
+{
+  "agent_id": "hunter-c3",
+  "units": [
+    {
+      "coverage_id": "client%2Fmarket%2Fsrc%2Fscreens%2FFormScreenLauncher.tsx%23params::client%2Fmarket%2Fsrc%2Fcomponents%2FFileEditNew.tsx%23upload::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Resource%20and%20file%20handling",
+      "canonical_refs": {
+        "surface": "client/market/src/screens/FormScreenLauncher.tsx#params",
+        "boundary": "client/market/src/components/FileEditNew.tsx#upload",
+        "subsystem": "profile/quick/all-in-scope-subsystems",
+        "attack_class": "ATTACK-CLASSES.md#Resource and file handling"
+      },
+      "surface": "Market web data layer: query params, Firestore chat, Storage upload, hosting config",
+      "boundary": "client/market/src/components/FileEditNew.tsx#upload",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Resource and file handling",
+      "starting_paths": [
+        "client/market/src/screens/FormScreenLauncher.tsx",
+        "client/market/src/screens/Chat",
+        "client/market/src/components/FileEditNew.tsx",
+        "client/market/src/utils/sanitizeFileType.ts",
+        "client/market/firebase.json",
+        "client/market/Dockerfile",
+        "client/market/index.html",
+        "client/market/src/serviceWorker.ts"
+      ],
+      "ordinary_attack_class_block": "ATTACK-CLASSES.md#Resource and file handling",
+      "selected_companion_blocks": [
+        "CLIENT-SIDE.md#Core discipline",
+        "CLIENT-SIDE.md#Cross-origin messaging and network attack classes",
+        "CLIENT-SIDE.md#Service-worker and browser-storage attack classes",
+        "CLIENT-SIDE.md#Universal moves",
+        "CLIENT-SIDE.md#Validation rules"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+          "reason": "no native memory-unsafe code in client/ scope (Swift/Kotlin/TS)"
+        },
+        {
+          "block": "AI-AND-LLM.md#Core discipline",
+          "reason": "no model/tool-call boundary found in client/ recon"
+        },
+        {
+          "block": "PROTOCOLS-RPC-AND-MESSAGING.md#Core discipline",
+          "reason": "server-side RPC/broker boundary reviewed in run-1 (backend/)"
+        },
+        {
+          "block": "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline",
+          "reason": "server-side tenant isolation reviewed in run-1; client only renders"
+        }
+      ],
+      "prior_status": "none",
+      "attempts": [],
+      "wave": 1,
+      "status": "in_progress",
+      "agent_id": "hunter-c3",
+      "reviewed_paths": [],
+      "local_checks": [],
+      "result_fingerprints": [],
+      "unresolved": []
+    }
+  ]
+}

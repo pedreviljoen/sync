@@ -1,0 +1,102 @@
+{
+  "decision": "needs_validation",
+  "record": {
+    "verdict": "needs_validation",
+    "fingerprint": "backend/functions/firebase/functions/src/pdf.ts-generatePdf-url-ssrf-token-exfil",
+    "title": "generatePdf Cloud Function appends the static robot token to a caller-chosen URL and loads it in headless Chromium",
+    "description": "The generatePdf onRequest function (europe-west1) has no authentication code and uses cors({origin:true}). It takes ?url= from the query string with no scheme or host validation. It appends the hardcoded robotToken=<static value> (pdf.ts:27-30) and loads the result with Puppeteer page.goto (pdf.ts:49). An attacker who can reach the function can supply a URL on a host they control and receive the token in the request line. The same string is accepted by the Go API as the shared robot credential (auth.go:30 defines it and auth.go:468 matches it in userFromIDToken, returning DetermineRobotUser(admin id from the platform header)), so a leaked token yields robot/admin-level API access. The browser also fetches arbitrary URLs from inside the Cloud Functions network (SSRF, including the metadata server), and the rendered result is returned as a PDF to the caller. Source review found no URL allowlist, no caller check and no invoker restriction in pdf.ts, index.ts or firebase.json. The remaining unknown is deployment: whether the deployed function is publicly invokable. The firebase-functions v2 onRequest default is a public invoker, and the web client needs browser access, which points to public. That cannot be proven from source. The repo's own docs/shipit-core-connector-plan.md:371-381 describes the same issue as open. Secondary: the name parameter is interpolated unescaped into footerTemplate HTML (pdf.ts:95), giving HTML injection into the PDF footer, which is limited and low impact. Content-Disposition (pdf.ts:101-104) uses name unquoted, but Node rejects CR/LF in header values, so there is no header splitting; the effect is limited to filename and parameter manipulation.",
+    "claimed_root_cause": "An unauthenticated, CORS-open HTTP function concatenates a hardcoded long-lived bearer secret onto an unvalidated user-supplied URL and navigates a headless browser to it, with no host allowlist or caller authentication.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/functions/firebase/functions/src/pdf.ts",
+        "line": 10,
+        "scope": "generatePdf = onRequest({memory,timeoutSeconds,region}, ...) with cors({origin:true}) at line 5; no invoker option and no auth check",
+        "description": "Public HTTP entrypoint; any caller who can reach the function can invoke it."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/functions/firebase/functions/src/pdf.ts",
+        "line": 19,
+        "scope": "generatePdf handler",
+        "description": "url = request.query.url, attacker-controlled; the only validation is a non-empty check (lines 22-25)."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/functions/firebase/functions/src/pdf.ts",
+        "line": 27,
+        "scope": "generatePdf handler",
+        "description": "Appends the hardcoded robotToken=<static token> as a query parameter to the attacker-supplied URL (lines 27-30)."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/functions/firebase/functions/src/pdf.ts",
+        "line": 49,
+        "scope": "generatePdf handler, page.goto(url) in Puppeteer launched with --no-sandbox (line 34)",
+        "description": "Headless Chromium requests the attacker-chosen URL including the token, sending it to the attacker host (or to internal addresses). The page is rendered to PDF (line 81) and returned to the caller."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 468,
+        "scope": "Client.userFromIDToken",
+        "description": "The leaked value matches robotToken (auth.go:30) and maps to DetermineRobotUser(admin id from the platform header), so the exfiltrated token is a usable credential against the API."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/functions/firebase/functions/src/pdf.ts",
+        "line": 19,
+        "description": "url taken straight from the query string; only an emptiness check (22-25)."
+      },
+      {
+        "file": "backend/functions/firebase/functions/src/pdf.ts",
+        "line": 30,
+        "description": "Hardcoded robot token literal appended to the URL (key name robotToken; value not reproduced here)."
+      },
+      {
+        "file": "backend/functions/firebase/functions/src/pdf.ts",
+        "line": 49,
+        "description": "page.goto(url) on the unvalidated URL."
+      },
+      {
+        "file": "backend/functions/firebase/functions/src/pdf.ts",
+        "line": 95,
+        "description": "name interpolated unescaped into footerTemplate HTML."
+      },
+      {
+        "file": "backend/functions/firebase/functions/src/index.ts",
+        "line": 12,
+        "description": "generatePdf exported with no invoker/auth wrapper; setGlobalOptions sets only region."
+      },
+      {
+        "file": "backend/functions/firebase/firebase.json",
+        "line": 1,
+        "description": "No invoker, ingress or IAM configuration for the function."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 30,
+        "description": "Same static string defined as the Go API robotToken constant; accepted at line 468."
+      },
+      {
+        "file": "docs/shipit-core-connector-plan.md",
+        "line": 371,
+        "description": "Internal doc states the function is unauthenticated and leaks the token to caller-supplied URLs, and that rotation is still pending."
+      }
+    ],
+    "blockers": [
+      "Whether the deployed Cloud Run service behind generatePdf grants roles/run.invoker to allUsers (public) is not visible in source. firebase-functions v2 onRequest defaults to a public invoker, but IAM could have been changed out of band.",
+      "Whether the deployed robotToken value is still live (not rotated) and whether egress from the function is unrestricted is not visible in source.",
+      "Whether the Go API at the deployed ingress honours the platform header for robot callers so the token yields real admin access, which depends on deployment configuration."
+    ],
+    "validation_plan": {
+      "deployment": "Owner-observed checks only, no live probe: (1) in GCP console or via 'gcloud run services get-iam-policy generatepdf --region europe-west1', check whether allUsers or allAuthenticatedUsers holds roles/run.invoker, and review ingress settings; (2) confirm in Secret Manager or the deployment config whether the robot token has been rotated since the commit; (3) review Cloud Run logs for generatePdf requests whose url host is not a Nile market origin.",
+      "local": "In the Firebase emulator (port 5001 per firebase.json), call generatePdf with url set to a local listener the owner controls and confirm the listener receives robotToken in its query string; confirm that name containing HTML renders in the footer and that CR/LF in name causes a header error."
+    }
+  },
+  "separate_root_causes": [
+    "Static robot bearer token (and potatoesSa token) hardcoded in source: backend/go/auth/auth.go:30, backend/functions/firebase/functions/src/pdf.ts:30, client/market/graphql.config.ts:13, backend/loadtests/locust_testing.py:10, client/ios/README.md:10. Compromise of the repo or any client leaks full robot credentials.",
+    "pdf.ts:95 name parameter is unescaped HTML in the Puppeteer footerTemplate (low-impact HTML injection into the generated PDF footer; no header injection because Node rejects CR/LF)."
+  ]
+}

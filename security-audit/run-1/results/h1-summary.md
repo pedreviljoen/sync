@@ -1,0 +1,9 @@
+# hunter-h1 result (parent's condensed record; secret values not recorded)
+Unit auth tokens: candidate (3); unit thoth gRPC: candidate (1)
+1. auth/hardcoded-shared-robot-token (proposed confirmed, medium): backend/go/api/cmd/server/main.go:120 AuthOperation -> auth/auth.go:379 -> :468 literal robotToken (defined :30, dup pdf.ts:30) accepted unconditionally -> :246/:473 DetermineRobotUser(X-Platform) Admin-party robot. No env gating/rotation. Likelihood medium (needs source/leaked copy and live token == literal), impact high (resolver reach untraced).
+2. auth/potatoessa-scope-first-field-only (proposed confirmed, medium): auth.go:474 potatoesSaToken -> UsrPotatoesSA (Admin party, Nile, no roles, :198-206); :407 only gate !isExportDataQuery; :323-332 isExportDataQuery returns at first argumented field, never checks other top-level selections/fragments; resolvers gated only by PartyTypes(Admin) (graph/auth_checks.go:28) admit it.
+3. functions/generatepdf-appends-robot-token-to-caller-url (needs_validation) -> DUPLICATE of h4 pdf.ts-generatePdf-url-ssrf-token-exfil: CONSOLIDATE.
+4. thoth/grpc-identity-from-plaintext-metadata (needs_validation): thoth/handlers.go:59 ServerGRPC no transport creds -> :181 metadata -> :186 Robot IDs no credential -> :204 token optional, mismatch falls back to UserByID -> :212 ContextWithUser w/ full claims. cloudbuild.yaml:45 --allow-unauthenticated; clients dial :443. Blocker: Cloud Run ingress/IAM.
+Verified OK: robot_oidc.go (idtoken.Validate, audience, SA email+verified, env gating) sound; AuthHTTP rejects Unauthed/PotatoesSA; checkPlatform skips Unauthed (public-operation list auth.go:404,422 is the control).
+Hardening: no revocation check (auth.go:519,543); non-constant-time compare; unchecked type assertions (panic per-request).
+Uncovered: harvester appends robot token to URLs (download_actions.go:40, docarchiver_fcn.go:37); checkUser suffix + hardcoded auditor list (auth.go:555-582).

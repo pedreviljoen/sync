@@ -1,0 +1,107 @@
+{
+  "agent_id": "hunter-h1",
+  "units": [
+    {
+      "coverage_id": "backend%2Fgo%2Fauth%2Fauth.go%23userFromIDToken::backend%2Fgo%2Fauth%2Fauth.go%23AuthOperation::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+      "canonical_refs": {
+        "surface": "backend/go/auth/auth.go#userFromIDToken",
+        "boundary": "backend/go/auth/auth.go#AuthOperation",
+        "subsystem": "profile/quick/all-in-scope-subsystems",
+        "attack_class": "ATTACK-CLASSES.md#Access control"
+      },
+      "surface": "Shared robot/PotatoesSA tokens and Firebase claim auth",
+      "boundary": "backend/go/auth/auth.go#AuthOperation",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Access control",
+      "starting_paths": [
+        "backend/go/auth",
+        "backend/functions/firebase/functions/src/pdf.ts",
+        "backend/go/api/cmd/server/main.go"
+      ],
+      "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+      "selected_companion_blocks": [
+        "WEB-PROTOCOL-AND-AUTH.md#Core discipline",
+        "WEB-PROTOCOL-AND-AUTH.md#API-key and mTLS attack classes",
+        "WEB-PROTOCOL-AND-AUTH.md#Universal moves",
+        "WEB-PROTOCOL-AND-AUTH.md#Validation rules"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+          "reason": "Go/Python/TypeScript only; no native code in backend/ scope"
+        },
+        {
+          "block": "CLIENT-SIDE.md#Core discipline",
+          "reason": "client/ is out of scope for this run"
+        },
+        {
+          "block": "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline",
+          "reason": "client/ is out of scope; no desktop/mobile boundary in backend/"
+        },
+        {
+          "block": "AI-AND-LLM.md#Core discipline",
+          "reason": "no model/tool-call boundary found in backend/ recon"
+        }
+      ],
+      "prior_status": "none",
+      "attempts": [],
+      "wave": 1,
+      "status": "planned",
+      "agent_id": null,
+      "reviewed_paths": [],
+      "local_checks": [],
+      "result_fingerprints": [],
+      "unresolved": []
+    },
+    {
+      "coverage_id": "backend%2Fgo%2Fthoth%2Fhandlers.go%23serverUnaryInterceptor::backend%2Fgo%2Fthoth%2Fhandlers.go%23serverUnaryInterceptor::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+      "canonical_refs": {
+        "surface": "backend/go/thoth/handlers.go#serverUnaryInterceptor",
+        "boundary": "backend/go/thoth/handlers.go#serverUnaryInterceptor",
+        "subsystem": "profile/quick/all-in-scope-subsystems",
+        "attack_class": "ATTACK-CLASSES.md#Access control"
+      },
+      "surface": "gRPC service-to-service identity via metadata",
+      "boundary": "backend/go/thoth/handlers.go#serverUnaryInterceptor",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Access control",
+      "starting_paths": [
+        "backend/go/thoth"
+      ],
+      "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+      "selected_companion_blocks": [
+        "PROTOCOLS-RPC-AND-MESSAGING.md#Core discipline",
+        "PROTOCOLS-RPC-AND-MESSAGING.md#RPC identity and authorization attack classes",
+        "PROTOCOLS-RPC-AND-MESSAGING.md#Universal moves",
+        "PROTOCOLS-RPC-AND-MESSAGING.md#Validation rules"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+          "reason": "Go/Python/TypeScript only; no native code in backend/ scope"
+        },
+        {
+          "block": "CLIENT-SIDE.md#Core discipline",
+          "reason": "client/ is out of scope for this run"
+        },
+        {
+          "block": "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline",
+          "reason": "client/ is out of scope; no desktop/mobile boundary in backend/"
+        },
+        {
+          "block": "AI-AND-LLM.md#Core discipline",
+          "reason": "no model/tool-call boundary found in backend/ recon"
+        }
+      ],
+      "prior_status": "none",
+      "attempts": [],
+      "wave": 1,
+      "status": "planned",
+      "agent_id": null,
+      "reviewed_paths": [],
+      "local_checks": [],
+      "result_fingerprints": [],
+      "unresolved": []
+    }
+  ]
+}

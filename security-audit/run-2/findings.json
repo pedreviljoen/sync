@@ -1,0 +1,536 @@
+[
+  {
+    "verdict": "confirmed",
+    "fingerprint": "c1-market-form-description-stored-xss-profile-name",
+    "title": "Stored XSS: buyer/seller profile name rendered unescaped via dangerouslySetInnerHTML in server-driven form description (hits admin session)",
+    "description": "A buyer or seller profile owner can set their profile Name (FormTypeSetProfileCompany, field profileName) to an HTML payload. The only server-side name checks are a double-quote ban and a 100-character cap. Backend form builders interpolate that name into form.Description with fmt.Sprintf and no escaping. For example, OutboundAddProduct uses buyer.Name and InboundAddProduct uses seller.Name. Form.tsx in the market client renders the description of any non-callout form with dangerouslySetInnerHTML and no sanitizer. The Description helper does not escape, and the form defaults to the Normal variant. When a platform admin opens the Add Outbound product or Add Inbound product form for a shipment tied to the attacker's profile, the attacker's script runs in the admin's browser session on the market origin.",
+    "root_cause": "The backend treats form.Description as plain text and interpolates user-controlled profile names into it without HTML escaping. The client treats the same field as trusted HTML in the Normal variant. The name validator (field.ValueFor) blocks only the double-quote character.",
+    "intended_behavior": "Form descriptions containing user-supplied data should be rendered as text, or HTML-escaped or sanitized before rendering. User-controlled names should not be able to inject markup into other tenants' or admins' sessions.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1146,
+        "scope": "mutationResolver.Form (auth chks, ~1146-1160)",
+        "description": "Lower-trust entrypoint. The FormTypeSetProfileCompany case allows Seller or Buyer party types for their own profile ID (auth.PartyTypeForID), in addition to Admin."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/customers/company.go",
+        "line": 557,
+        "scope": "ProfileCompanyInput switch on profileName",
+        "description": "ap.Name is set from field.ValueFor. MaxLength is 100 (company.go:1058). ValueFor (backend/go/api/internal/form/field/field.go:405-416) rejects only double quotes. The value is persisted via handleSetProfileCompany (backend/go/api/internal/graph/form_input.go:1025) and Administrator.Set. The ProfileOwner role has Write ProfileInformation (backend/go/access/permissions/permissions.go:215)."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/form.go",
+        "line": 272,
+        "scope": "queryResolver.form case FormTypeAddOutboundShipmentProduct (~272-286); the inbound case at 223-238 is analogous",
+        "description": "The buyer profile is loaded by ID from the shipment (stored Name) and passed to shipments.OutboundAddProduct. The Form query default auth (schema.resolvers.go:3286) is Admin only for these form types, so the victim is a platform admin."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/shipments/outbound_add_product.go",
+        "line": 21,
+        "scope": "OutboundAddProduct",
+        "description": "form.Description(fmt.Sprintf(\"Allocate inventory to outbound shipment to %s\", buyer.Name)) with no escaping. form.Description (backend/go/api/internal/form/form.go:58-62) assigns the string verbatim, and the variant defaults to Normal (form.go:25). inbound_add_product.go:56 does the same with seller.Name."
+      },
+      {
+        "kind": "sink",
+        "file": "client/market/src/components/Form.tsx",
+        "line": 122,
+        "scope": "Form component, non-Callout description branch",
+        "description": "dangerouslySetInnerHTML={{ __html: form.description }} with no sanitizer. Only the Callout variant (line ~112) renders as text. Neither OutboundAddProduct nor InboundAddProduct sets Callout. The form is opened from the admin EditShipment screen (client/market/src/screens/Shipments/EditShipment.tsx:370)."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "client/market/src/components/Form.tsx",
+        "line": 122,
+        "description": "dangerouslySetInnerHTML with form.description. No DOMPurify or sanitize usage found anywhere in client/market outside node_modules."
+      },
+      {
+        "file": "backend/go/api/internal/shipments/outbound_add_product.go",
+        "line": 21,
+        "description": "Sprintf embeds buyer.Name into the description."
+      },
+      {
+        "file": "backend/go/api/internal/shipments/inbound_add_product.go",
+        "line": 56,
+        "description": "Sprintf embeds seller.Name into the description."
+      },
+      {
+        "file": "backend/go/api/internal/form/field/field.go",
+        "line": 405,
+        "description": "ValueFor enforces only MaxLength and a no-double-quote rule. HTML tags, single quotes and backticks pass."
+      },
+      {
+        "file": "backend/go/api/internal/graph/customers/company.go",
+        "line": 1058,
+        "description": "profileName MaxLength is 100, which is enough for a short onerror payload."
+      },
+      {
+        "file": "backend/go/api/internal/graph/packhouse/shipment_info.go",
+        "line": 87,
+        "description": "Sibling sink: recipient/prf.Name interpolated into the description, which is likely rendered through the same Form.tsx path."
+      },
+      {
+        "file": "backend/go/api/internal/graph/customers/delete_user.go",
+        "line": 15,
+        "description": "Sibling sink: userEmail interpolated, but the viewer is limited to the user's own email (schema.resolvers.go:3321), so it is self-only and low value."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "Attacker holds an authenticated buyer or seller profile-owner account on their own profile."
+      },
+      {
+        "kind": "user_interaction",
+        "description": "A platform admin must open the Add Outbound product or Add Inbound product form for a shipment linked to the attacker's profile. This is a routine admin workflow."
+      },
+      {
+        "kind": "system_configuration",
+        "description": "A strict deployed CSP or equivalent response headers are not visible in source. None was found in the repo (grep for Content-Security-Policy and DOMPurify found nothing under client/market). If one exists it could blunt inline-handler payloads."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "A registered buyer or seller changes their own profile Name to a payload with no double quotes. An admin later opens the allocation form for that profile's shipment, and the payload executes in the admin's session.",
+      "payloads": [
+        "<img src=x onerror=alert(document.domain)>"
+      ],
+      "instructions": [
+        "As the buyer or seller profile owner, submit FormTypeSetProfileCompany with the profileName field set to the payload (it is under 100 characters and contains no double quotes).",
+        "Get a shipment created that references the profile. An admin then opens the Add Outbound product or Add Inbound product form for it from the EditShipment screen.",
+        "The server returns the description containing the raw payload, and Form.tsx injects it as HTML."
+      ],
+      "observed_result": "Source-level observation only, not a runtime result. Every hop was read in source: profile owners may set Name, no escaping or sanitizing exists on the path, and the sink uses dangerouslySetInnerHTML for the Normal-variant description. Nothing was executed."
+    },
+    "remediation": {
+      "strategy": "Render form.description as text, or sanitize it with a vetted HTML sanitizer such as DOMPurify. On the backend, html.EscapeString every user-controlled value interpolated into descriptions (profile name, email, recipient). Optionally reject '<' and '>' in profile names and add a CSP.",
+      "code_changes": [
+        {
+          "file_name": "backend/go/api/internal/shipments/outbound_add_product.go",
+          "fixed_code": "form.Description(fmt.Sprintf(\"Allocate inventory to outbound shipment to %s\", html.EscapeString(buyer.Name))),"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "medium",
+        "reason": "Any registered buyer or seller can plant the payload. It fires only when an admin opens the specific form for that profile's shipment, and a deployed CSP could mitigate it."
+      },
+      "impact": {
+        "score": "high",
+        "reason": "Script execution in a platform admin session on the market origin crosses the tenant boundary (buyer or seller to admin). It permits admin-level GraphQL actions as that admin."
+      },
+      "overall_severity": "high"
+    },
+    "confidence": {
+      "score": "medium",
+      "reason": "Every source hop was read and the sink is unsanitized. The admin-only audience of the carrier forms and the absence of a CSP are inferred from source, since deployment headers are not visible. No runtime execution."
+    }
+  },
+  {
+    "verdict": "needs_validation",
+    "fingerprint": "c3-fileviewer-iframe-unvalidated-src",
+    "title": "Market FileViewer renders unvalidated server-supplied file URL as iframe src (possible javascript:/data: execution in market origin)",
+    "description": "Row detail file/image values are split from a server-provided string (RowDetailItem.tsx:11 for Images/Documents labels, or data.images at :83) and passed to Files.tsx:15 and then FileViewer.tsx. There the value is used as src for an img or an iframe with no scheme or host check and no sandbox attribute (FileViewer.tsx:165, :172). The ref(storage, src) guard (FileViewer.tsx:40-46) does not gate rendering. When ref() throws (as it would for a javascript: string), storageRef is null, the effect sets showError and clears isCheckingContentType (FileViewer.tsx:50-55). The button therefore stays enabled and contentType stays '' (not image/), so the click opens the Modal and takes the iframe branch with the raw src. The backend accepts arbitrary strings for these fields: field.ParseValidURLs (backend/go/api/internal/form/field/field.go:811-826) only calls url.Parse, which accepts javascript: and data: strings. These flow through dispatch.go:177-201 and 257-281 (and the update_notes, receive, inbound_edit and outbound_edit handlers) into ledger image infos, and are then returned via model.DetImages and the Images info pair (graph/shipments.go:5489-5562). No CSP is defined in the client or backend source. The remaining unknowns are deployment and browser facts that source cannot settle: whether any CSP or header is applied at hosting, whether a counterparty (the victim) actually views the attacker-written field, and the browser behaviour of a javascript: iframe src.",
+    "claimed_root_cause": "No scheme or host allow-list (for example firebasestorage.googleapis.com or gs://) is applied to file/image URL strings either when accepted by the backend (ParseValidURLs only checks that url.Parse succeeds) or when rendered by the client (FileViewer uses the value directly as iframe/img src with no sandbox). The ref(storage, src) failure path only shows an error toast and does not prevent the click-to-render path.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/shipments/dispatch.go",
+        "line": 177,
+        "scope": "dispatch form handling (and sibling handlers update_notes.go:192-210, receive.go:207-223, inbound_edit.go:203-217, outbound_edit.go:232-242)",
+        "description": "Authenticated form user submits a FieldInput value for a reference-image/dispatch-images/driver-docs field; it is parsed with field.ParseValidURLs."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/form/field/field.go",
+        "line": 818,
+        "scope": "ParseValidURLs",
+        "description": "Only url.Parse(s) is checked; any scheme (javascript:, data:, https://attacker) is accepted and appended to values."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/shipments.go",
+        "line": 5489,
+        "scope": "shipment detail builders (DetImages at 5493-5523; Images info pair joined with ';' at 5555-5562)",
+        "description": "Stored image URLs are returned unchanged to other users in DetailItem.images / info.value."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/market/src/components/SubTableActionCard/RowDetailItem.tsx",
+        "line": 83,
+        "scope": "RowDetailItem",
+        "description": "data.images (and info.value split on ';' at :11 for Images/Documents labels, rendered at :75) are passed to <Files>."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/market/src/components/Files.tsx",
+        "line": 15,
+        "scope": "Files",
+        "description": "Each string is passed as src to FileViewer with no validation."
+      },
+      {
+        "kind": "sink",
+        "file": "client/market/src/components/FileViewer.tsx",
+        "line": 172,
+        "scope": "FileViewer modal render",
+        "description": "Non-image (contentType '' or failed metadata) branch renders <iframe src={src}> with no sandbox; on user click the value is loaded in the viewer's browser."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "client/market/src/components/FileViewer.tsx",
+        "line": 40,
+        "description": "storageRef is built in try/catch and returns null on throw; this is a crash guard, not a gate on rendering."
+      },
+      {
+        "file": "client/market/src/components/FileViewer.tsx",
+        "line": 50,
+        "description": "Null storageRef only sets name, showError and isCheckingContentType=false, leaving the open button enabled (disabled at :118 depends only on checking state and online status)."
+      },
+      {
+        "file": "client/market/src/components/FileViewer.tsx",
+        "line": 172,
+        "description": "iframe has no sandbox attribute and src is the raw string."
+      },
+      {
+        "file": "backend/go/api/internal/form/field/field.go",
+        "line": 818,
+        "description": "Only url.Parse is applied to file field values."
+      }
+    ],
+    "blockers": [
+      "Whether the counterparty viewer can see the attacker-written field (per-role visibility and authorization of the shipment detail builders) was not fully traced from source.",
+      "Browser behaviour for a javascript: iframe src (executes inheriting parent origin in common browsers) and whether any CSP or response header is applied at hosting are deployment facts not present in source.",
+      "Auth token storage (Firebase persistence in the market origin) determines impact if script runs; not verified here."
+    ],
+    "validation_plan": {
+      "local": "In a dev build, seed a shipment dispatch field value containing a harmless marker URL (for example a javascript: URL that only writes document.title) via the normal form submission, open the row detail as a second test user, click 'File 1', and observe whether the marker runs in the market origin. Also add a unit test that FileViewer rendered with a non-storage src still produces an iframe with that src.",
+      "deployment": "Owner to inspect response headers of the deployed market origin for Content-Security-Policy (script-src, frame-src) in a test or staging environment and confirm which roles can view which dispatch/reference file fields. Do not probe production."
+    }
+  },
+  {
+    "fingerprint": "c4-ios-ci-sentry-token-echoed-to-build-log",
+    "verdict": "needs_validation",
+    "title": "Xcode Cloud post-build script echoes SENTRY_AUTH_TOKEN value to the build log",
+    "description": "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh runs under #!/bin/bash with set -e. Line 11 is an unconditional top-level statement: echo \"SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:+SET (hidden)}${SENTRY_AUTH_TOKEN:-NOT SET}\". In POSIX/bash parameter expansion, ${V:+word} yields word when V is set and non-empty, and ${V:-default} yields the value of V when it is set and non-empty. When the token is set, the line therefore prints 'SET (hidden)' immediately followed by the raw token value. It prints 'NOT SET' only when the token is unset or empty, so the 'hidden' label is misleading. Lines 73-76 make the script exit 1 if the token is unset, and lines 79-82 pass it to sentry-cli upload-dif for org nile-ag, project ios. A successful release run therefore has the token set and logs it. No other line echoes a secret: lines 8-10 print only CI_* variables and the token is otherwise used only as a sentry-cli argument. Whether Xcode Cloud masks the secret in logs, and who can read those logs, are deployment facts not visible in source.",
+    "claimed_root_cause": "Inverted or misused parameter expansion: ${SENTRY_AUTH_TOKEN:-NOT SET} was meant to print only a placeholder, but it expands to the token value whenever the token is set. It is combined with ${...:+SET (hidden)}, which only adds a prefix.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh",
+        "line": 1,
+        "scope": "Xcode Cloud post-xcodebuild hook (bash, set -e); SENTRY_AUTH_TOKEN is injected as a workflow secret environment variable",
+        "description": "Script runs after each Xcode Cloud xcodebuild action with the Sentry token in its environment. The log is readable by the Xcode Cloud / App Store Connect users and anyone with log access."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh",
+        "line": 73,
+        "scope": "top-level of ci_post_xcodebuild.sh, inside if [[ -n \"$CI_ARCHIVE_PATH\" ]]",
+        "description": "Script exits 1 if the token is empty, so any run that reaches the Sentry upload has the token set. Line 11 itself is unconditional and runs on every invocation."
+      },
+      {
+        "kind": "sink",
+        "file": "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh",
+        "line": 11,
+        "scope": "top-level echo, unconditional",
+        "description": "echo expands ${SENTRY_AUTH_TOKEN:-NOT SET} to the token value when set, and writes it to stdout, which Xcode Cloud captures in the build log."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh",
+        "line": 1,
+        "description": "Shebang #!/bin/bash, so bash expansion semantics apply."
+      },
+      {
+        "file": "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh",
+        "line": 11,
+        "description": "echo with ${SENTRY_AUTH_TOKEN:+SET (hidden)}${SENTRY_AUTH_TOKEN:-NOT SET}: for a set value this prints 'SET (hidden)' followed by the token value. The line is not inside any conditional."
+      },
+      {
+        "file": "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh",
+        "line": 73,
+        "description": "Script aborts if the token is unset, so the token must be set for the script to complete successfully."
+      },
+      {
+        "file": "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh",
+        "line": 79,
+        "description": "Token is passed to sentry-cli --auth-token for upload-dif to org nile-ag, project ios, which shows it carries project upload scope at least."
+      }
+    ],
+    "blockers": [
+      "Whether Xcode Cloud masks secret environment variables in build logs is platform behaviour that cannot be established from source.",
+      "Who can read Xcode Cloud build logs (App Store Connect role set, log export or artifact retention) is not in the repository.",
+      "The scopes and live status of the Sentry token stored in the workflow are unknown from source."
+    ],
+    "validation_plan": {
+      "deployment": "Owner-observed, no live probe: in App Store Connect, open the Xcode Cloud logs of a recent build of the Nile and NileStaging workflows and check whether the post-xcodebuild log line 'SENTRY_AUTH_TOKEN: ...' shows only 'SET (hidden)' followed by asterisks or masking, or a readable value. Also list which roles can view the logs. If a readable value appears, rotate the Sentry auth token (org nile-ag), check its scopes, and purge or restrict the old logs. Remediate by removing the :- expansion, e.g. echo \"SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:+SET (hidden)}${SENTRY_AUTH_TOKEN:-NOT SET}\" becomes if [[ -n \"$SENTRY_AUTH_TOKEN\" ]]; then echo \"SENTRY_AUTH_TOKEN: SET (hidden)\"; else echo \"SENTRY_AUTH_TOKEN: NOT SET\"; fi.",
+      "local": "Source-only check already done: in bash, SENTRY_AUTH_TOKEN=dummy; echo \"${SENTRY_AUTH_TOKEN:+SET (hidden)}${SENTRY_AUTH_TOKEN:-NOT SET}\" prints 'SET (hidden)dummy'. Run it only with a dummy value, never the real token."
+    }
+  },
+  {
+    "verdict": "needs_validation",
+    "fingerprint": "c4-ios-webview-thirdparty-page-reaches-bridge-and-token",
+    "title": "iOS wrapper WebView lets any non-blocklisted third-party page load in-app with the startDownload bridge and deviceToken injection attached",
+    "description": "NileWebView's navigation policy only diverts Notion, social-media and 'firebasestorage' URLs to the system browser. Every other URL is allowed, and target=_blank popups are cancelled and reloaded in the same WKWebView. The 'startDownload' script message handler is registered on the webView configuration, so it applies to all frames and origins, and it never checks message.frameInfo or the sender's host. The handler fetches a page-supplied URL with URLSession.shared, accepts it if the response begins with %PDF, and writes it to the temp directory under a page-supplied filename that is not path-normalised. Separately, updateLocalStorage and notifyJavaScriptOfStorageChange run evaluateJavaScript into whatever page is current. They write localStorage.deviceToken (the FCM token) and postMessage it with targetOrigin '*', with no host check. The only host gate in the file is on universal-link reloads (line 148). The market web app does send server-supplied external URLs to window.open(url,'_blank') or window.location.href (Post.tsx:127, Explore.tsx:92, useHandleLink.ts:33). Source therefore shows an unguarded path once a third-party page is loaded, but the exploit depends on whether any lower-trust party can author such a URL (Explore post URLs and action URLs). I found no backend source showing that, and the post-authoring role is a deployment/data fact. Impact is also bounded: the exposed secret is an FCM device token, which is not a Nile session credential. The file write is limited to PDFs in the app temp directory, and the URL fetch is a blind PDF-only SSRF-like request from the device. Not confirmable from source alone.",
+    "claimed_root_cause": "WKWebView navigation policy is a small blocklist rather than a host allowlist, and the native bridge (startDownload handler plus deviceToken evaluateJavaScript injection) is attached to the web view without origin or frame checks, so any third-party page that gets loaded in-app inherits the bridge and receives the device token.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "client/market/src/screens/Explore/Post.tsx",
+        "line": 127,
+        "scope": "Read more onClick",
+        "description": "For non-Nile post URLs the web app calls window.open(post.url,'_blank') with a server-supplied URL. Explore.tsx:92 and hooks/useHandleLink.ts:33 do the same via window.open/location.href. Who authors these URLs is not established from source."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/ios/Nile/Nile/NileWebView.swift",
+        "line": 431,
+        "scope": "Coordinator.webView(_:decidePolicyFor:navigationAction:)",
+        "description": "externalLinkPolicy (line 475) cancels only Notion, social and 'firebasestorage' URLs. A nil targetFrame (target=_blank) is cancelled and reloaded in the same webView (lines 442-445). All other URLs, including top-frame and subframe loads, are allowed. decidePolicyFor navigationResponse allows everything (line 456). No other navigation or UI delegate exists in the iOS sources that I found."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/ios/Nile/Nile/NileWebView.swift",
+        "line": 253,
+        "scope": "setupMessageHandler / MessageHandler.userContentController(didReceive:)",
+        "description": "The 'startDownload' handler is added to the webView's userContentController (all frames). The handler at line 591 parses only body.url and body.filename. It performs no check of message.frameInfo or the origin."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/ios/Nile/Nile/NileWebView.swift",
+        "line": 662,
+        "scope": "MessageHandler.processDownload",
+        "description": "URLSession.shared fetches the page-supplied URL (line 649). If the body begins with %PDF it is written to temporaryDirectory.appendingPathComponent(page-supplied filename) (line 681) and a share sheet is presented. The filename is not sanitised."
+      },
+      {
+        "kind": "sink",
+        "file": "client/ios/Nile/Nile/NileWebView.swift",
+        "line": 181,
+        "scope": "updateLocalStorage / notifyJavaScriptOfStorageChange",
+        "description": "evaluateJavaScript writes localStorage.setItem('deviceToken', ...) (line 181) and window.postMessage({type:'storageChange',key:'deviceToken',newValue:...},'*') (line 159) into the current page, whatever its origin."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "client/ios/Nile/Nile/NileWebView.swift",
+        "line": 431,
+        "description": "decidePolicyFor allows every URL not matched by the Notion/social/firebasestorage blocklist. target=_blank popups load in the same webView."
+      },
+      {
+        "file": "client/ios/Nile/Nile/NileWebView.swift",
+        "line": 148,
+        "description": "Only the universal-link reload path checks the host (market.nile.ag, market-staging.web.app, *.nile.ag). The token-injection paths at lines 129-199 do not check webView.url's host. The only guard is a skip while on Google OAuth or the Firebase auth handler."
+      },
+      {
+        "file": "client/ios/Nile/Nile/NileWebView.swift",
+        "line": 591,
+        "description": "The message handler does not inspect message.frameInfo or the sending origin."
+      },
+      {
+        "file": "client/ios/Nile/Nile/NileWebView.swift",
+        "line": 681,
+        "description": "The page-supplied filename is appended to the temp directory with no normalisation. Written bytes are limited to content starting with %PDF and the destination to the app temp directory."
+      },
+      {
+        "file": "client/market/src/hooks/useHandleLink.ts",
+        "line": 33,
+        "description": "Assigns window.location.href = fullUrl for isExternal targets, so the top-level wrapper webView can be navigated to a third-party site."
+      }
+    ],
+    "blockers": [
+      "Whether any principal below Nile admin staff (for example sellers, buyers or other tenants) can author or influence the URL of an Explore post or action link that the web app opens externally. The backend source for post authoring and its authorisation was not located, and it depends on deployed data and roles.",
+      "Which production URLs actually reach the in-app webView (production Explore content, Firebase remote config for the navigation flag). This is deployment data, not source.",
+      "Behaviour of the startDownload bridge when invoked from a cross-origin top-level page in a shipped build is not observed. No code was executed in this run."
+    ],
+    "validation_plan": {
+      "local": "In a simulator build with a test device token, load a controlled non-Nile HTTPS page in the wrapper. For example, point a staging Explore post URL at a test page and tap Read more. Confirm the page stays in-app and that localStorage.deviceToken and the storageChange postMessage are visible to the page. Call webkit.messageHandlers.startDownload.postMessage({url:<test PDF URL>,filename:'x.pdf'}) and confirm the fetch and share sheet occur. Use a dummy token and a test server only.",
+      "deployment": "Owner-observed: review the backend authoring path and roles for Explore posts and action URLs (who can set post.url), and the production Explore data for non-Nile, non-social, non-firebasestorage URLs. If only trusted Nile admins can author them, close as accepted risk or low. If sellers, buyers or any tenant can author them, upgrade to confirmed at medium. Remediation is a host allowlist in decidePolicyFor (open everything else in SFSafariViewController or the system browser), a message.frameInfo.securityOrigin and host check in the startDownload handler, filename sanitisation (lastPathComponent), and removing the '*' targetOrigin and injecting the token only on *.nile.ag hosts."
+    }
+  },
+  {
+    "fingerprint": "c6-website-slack-webhook-committed",
+    "verdict": "needs_validation",
+    "title": "Slack incoming-webhook URL hardcoded in client/website package.json postdeploy script",
+    "description": "The npm script 'slack' in client/website/package.json embeds a full hooks.slack.com/services incoming-webhook URL (real format, not a placeholder or env reference) in a curl POST. client/website/firebase.json hosting.postdeploy runs 'npm run slack' after each Firebase deploy. Anyone with read access to the repository or package can post arbitrary messages as the webhook's bot into the bound Slack channel (spoofed deploy notices, phishing links). Incoming webhooks are write-only, so channel data cannot be read. Impact is limited to message spoofing. No other file under client/ references hooks.slack.com. Whether the webhook is live, which channel it targets, and whether the repo is private or the file is tracked cannot be determined from source (client/website is not a git repo checkout here).",
+    "claimed_root_cause": "A webhook URL that acts as a bearer secret is committed in plaintext in a package.json script instead of being injected from CI or deploy-time environment or a secret store.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "client/website/firebase.json",
+        "line": 3,
+        "scope": "hosting.postdeploy",
+        "description": "Firebase deploy hook runs 'npm run slack' after each hosting deploy. This is the execution path. The attacker entrypoint is read access to the repository contents."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/website/package.json",
+        "line": 13,
+        "scope": "scripts.slack",
+        "description": "Script holds the literal webhook URL and the curl command with a static JSON text payload that interpolates $GCLOUD_PROJECT."
+      },
+      {
+        "kind": "sink",
+        "file": "client/website/package.json",
+        "line": 13,
+        "scope": "scripts.slack curl target",
+        "description": "POST to hooks.slack.com/services/<T>/<B>/<token>. Possession of the URL alone authorizes posting to the Slack channel."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "client/website/package.json",
+        "line": 13,
+        "description": "Literal committed hooks.slack.com/services webhook URL in the slack script (token value not reproduced here)."
+      },
+      {
+        "file": "client/website/firebase.json",
+        "line": 3,
+        "description": "postdeploy hook invokes npm run slack."
+      }
+    ],
+    "blockers": [
+      "Whether the webhook is still active, not revoked, and which Slack channel it posts to is a Slack workspace fact not visible in source.",
+      "Whether the repository is private and who has read access (and whether this file is git-tracked) is a deployment fact not visible in source."
+    ],
+    "validation_plan": {
+      "deployment": "Owner check, with no live probe: in the Slack workspace admin (Apps > Incoming Webhooks or the owning app's Incoming Webhooks page), see whether a webhook matching the committed one's trailing identifier exists and which channel it targets. Check repository visibility and collaborator list, and git history for the file. If the webhook is live, rotate or revoke it, and move the URL to a CI secret or environment variable referenced by the script (for example $SLACK_WEBHOOK_URL)."
+    }
+  },
+  {
+    "fingerprint": "c7-mock-prod-storage-capability-urls",
+    "verdict": "rejected",
+    "title": "Mock and Storybook fixtures embed nile-production Firebase Storage download URLs with access tokens",
+    "description": "I confirmed the occurrences. Two mock files and two story files contain firebasestorage.googleapis.com download URLs for the nile-production.appspot.com bucket. Each carries an ?alt=media&token=... query and points at images/<uuid>.jpg or .jpeg. Token values are not reproduced here. The objects are product photos: the mock context is 'Fresh lemons from local farms.' catalog and market product images. The two UUIDs (3d9d540e... and b8c8b277...) are reused across every occurrence. The files are imported only by *.stories.tsx and *.test.tsx files, never by application code, and no production source imports them. A Firebase download token is a capability URL, and these URLs grant read access to those two image objects. The images are marketplace product photos, which are customer-facing content the app already serves to buyers. Nothing in the source shows them to be sensitive. The residual issue is hygiene: production URLs are hardcoded in test fixtures.",
+    "claimed_root_cause": "Production Firebase Storage URLs with live-looking download tokens were hardcoded in mock and story fixtures committed to the repository, so anyone with source access holds read capability URLs for objects in the production bucket.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "client/market/src/mocks/buyersMarket.mock.ts",
+        "line": 56,
+        "scope": "mockProduct.info.images (also line 61, marketImages[].image)",
+        "description": "Hardcoded nile-production Firebase Storage URL with an alt=media token query. Exported as a test and Storybook fixture."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/market/src/mocks/catalogMarket.mock.ts",
+        "line": 81,
+        "scope": "catalogMarketResult product images (also line 86)",
+        "description": "Same product image object URL, repeated in the catalog fixture. Imported only by CatalogMarket *.stories.tsx files."
+      },
+      {
+        "kind": "sink",
+        "file": "client/market/src/components/Files.stories.tsx",
+        "line": 14,
+        "scope": "Default story args.files (also line 15; FileViewer.stories.tsx line 13)",
+        "description": "The URL is rendered by Storybook, which is not part of the production vite build. The only effect is read access to a product photo for anyone holding the URL. This is not a meaningful cross-boundary impact."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "client/market/src/mocks/buyersMarket.mock.ts",
+        "line": 56,
+        "description": "The URL is in a mock product whose description is 'Fresh lemons from local farms.', so the content is a product photo. Line 61 repeats it."
+      },
+      {
+        "file": "client/market/src/mocks/catalogMarket.mock.ts",
+        "line": 81,
+        "description": "The same URL is used in the catalog fixture. Line 86 repeats it."
+      },
+      {
+        "file": "client/market/src/components/Files.stories.tsx",
+        "line": 14,
+        "description": "Story fixture with the second image URL. Line 15 repeats it, and client/market/src/components/FileViewer.stories.tsx line 13 uses it too."
+      },
+      {
+        "file": "client/market/src/components/Market/ProductRow/ProductRow.test.tsx",
+        "line": 4,
+        "description": "The mocks are imported only from *.stories.tsx and *.test.tsx files (for example Market/ProductRow/ProductRow.test.tsx, MarketGroupView.test.tsx, BuyersMarket/StockTracker.stories.tsx). No application source imports them, so they are not reachable from the vite app entry or bundle."
+      },
+      {
+        "file": "client/market/src/utils/get-firebase-url-filename.ts",
+        "line": 18,
+        "description": "This is a JSDoc example URL with a placeholder token and bucket. It is not a real URL."
+      }
+    ],
+    "reason": "Source refutes meaningful impact. The tokenised URLs appear only in test and Storybook fixtures, and no application code imports them, so they are not shipped in production builds. The objects are ordinary marketplace product images, content the app already shows to buyers, with no sensitive data in evidence. A source reader gains nothing beyond access to two product photos. Treat this as an informational hygiene note: replace the production URLs with placeholder or local assets. Rotating the tokens is optional and would be a deployment action. Whether the tokens are still live cannot be established from source. A quick owner check of the Firebase console can confirm the two objects are public catalogue images."
+  },
+  {
+    "fingerprint": "c7-robot-token-client-copies",
+    "verdict": "needs_validation",
+    "title": "Shared Nile robot token literal committed in three client dev-tooling files",
+    "description": "The same literal as the backend robotToken constant (backend/go/auth/auth.go:30, run-1 finding auth/hardcoded-shared-robot-token) is committed in three client files. A grep -cF of the backend literal gave exactly one match in each file, so all three are the same value as the backend. Occurrences: client/market/graphql.config.ts:13 (Authorization Bearer header; X-Platform 1 at line 14), client/ios/README.md:10 (swift-graphql CLI example command) and client/ios-native/Farmer App/Nile Farmer/apollo-ios-gen-schema.sh:12 (--header Authorization). This is NOT a distinct root cause: these are additional locations of the run-1 hardcoded-shared-robot-token finding (secret committed to source). It only adds exposure to anyone with read access to the client tree. None of the three is shipped in a runtime bundle. graphql.config.ts is referenced only by the package.json generate:gql script (graphql-codegen --config) and by tsconfig.node.json include. It is not imported from src, vite.config.mts or tsconfig.app.json. The market Dockerfile does 'COPY . .' in the builder stage (line 9), but the final nginx stage copies only /app/build (line 103), so the file does not reach the runtime image. The iOS README and shell script are docs and tooling. Whether the literal is the live production secret is a deployment fact not visible in source. The impact is that of the run-1 finding (platform-admin robot access via the public GraphQL auth middleware) if live. Git tracking could not be checked, since core is not a git repository here.",
+    "claimed_root_cause": "A shared robot bearer token was pasted into client developer tooling and docs (codegen config, iOS README, Apollo schema script) instead of being read from an env var or secret store, duplicating the backend hardcoded-secret exposure.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "client/market/graphql.config.ts",
+        "line": 13,
+        "scope": "graphql-codegen config for the market app",
+        "description": "Literal robot Bearer token placed in the Authorization header for introspecting a hardcoded staging GAPI URL; run via package.json generate:gql."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/ios/README.md",
+        "line": 10,
+        "scope": "iOS README swift-graphql command",
+        "description": "Same literal in a documented CLI --header argument; developers copy and paste it, and it sits in the repo."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/ios-native/Farmer App/Nile Farmer/apollo-ios-gen-schema.sh",
+        "line": 12,
+        "scope": "Apollo iOS schema download script",
+        "description": "Same literal passed as an Authorization header when the script downloads the schema."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/auth/auth.go",
+        "line": 30,
+        "scope": "auth package constant robotToken (via GetRobotToken)",
+        "description": "The backend constant is the same value. If it is live, anyone who can read the client repo holds a credential accepted as the platform-admin robot (see run-1 auth/hardcoded-shared-robot-token)."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "client/market/graphql.config.ts",
+        "line": 13,
+        "description": "Authorization header holds the robot token literal (grep -cF against the backend literal: same)."
+      },
+      {
+        "file": "client/ios/README.md",
+        "line": 10,
+        "description": "Command example includes the same literal (same as the backend)."
+      },
+      {
+        "file": "client/ios-native/Farmer App/Nile Farmer/apollo-ios-gen-schema.sh",
+        "line": 12,
+        "description": "--header Authorization carries the same literal (same as the backend)."
+      },
+      {
+        "file": "client/market/Dockerfile",
+        "line": 103,
+        "description": "The final stage copies only /app/build into nginx, so graphql.config.ts (copied in the builder stage at line 9) is not in the runtime image."
+      },
+      {
+        "file": "client/market/package.json",
+        "line": 8,
+        "description": "generate:gql is the only consumer of graphql.config.ts; there are no imports from src or vite config."
+      }
+    ],
+    "blockers": [
+      "Source cannot show whether the committed literal is the live production/staging secret, already rotated, or a dev-only value (deployment fact).",
+      "Git tracking and history of the three files could not be checked (core has no .git in this environment), so it is not known whether the secret was ever pushed to a shared remote."
+    ],
+    "validation_plan": {
+      "local": "Source-only follow-up: confirm via the repo host (not a live probe) that the three files are tracked and check history for the first commit introducing the literal. Confirm the iOS build does not embed apollo-ios-gen-schema.sh or the README.",
+      "deployment": "Owner-observed check, no live probe: compare the committed value with the current token in Secret Manager or deploy configuration (compare hashes, not printed values) and check the staging GAPI URL in graphql.config.ts against it. If it matches, rotate the token once for the backend, pdf.ts, loadtests and these client files together, and replace the client copies with an env var read (for example GAPI_TOKEN) in graphql.config.ts, the shell script and the README."
+    }
+  }
+]

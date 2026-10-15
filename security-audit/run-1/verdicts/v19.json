@@ -1,0 +1,144 @@
+{
+  "decision": "confirmed",
+  "record": {
+    "verdict": "confirmed",
+    "fingerprint": "H5-resolvers-no-authz-write",
+    "title": "Multiple GraphQL mutations perform cross-tenant writes with no caller role or ownership check",
+    "description": "In /Users/pedreviljoen/Documents/work/nile/core/backend/go/api/internal/graph/schema.resolvers.go, a set of mutation resolvers forward caller-supplied seller, profile, quote, shipment or item identifiers to backend services without auth.Checks, access.Has, or any ownership comparison. Sibling resolvers in the same file do enforce these checks (SeasonalityToggle at :1534, SellerLogistics, Notify, Markup, SetRouteRate), which shows the intended pattern. The only gate on the path is AuthOperation (auth/auth.go:373-419), which requires a valid user and platform but not a role. Any authenticated user, including a Buyer, can therefore call these. CONFIRMED (checked individually, no check at the resolver, helper or downstream op): VolumePriceAdjustment (:1518, writes a volume discount for any sellerID via trader maybeSetVolumeAdjustments, trader/internal/ops/inputs.go:88, which has no auth check); UpdateSellerCutoff (:1563 -> graph/seller.go:46, loads any seller profile by ID and rewrites its SellerCutOff and SellerMarketClose); UploadPop (:1130, attaches an arbitrary fileURL as proof of payment to any quoteID); SetShipmentItemStatus (:1941) and SetInventoryStatus (:1955), which drive ledger maybeSetShipmentItemStatus (ledger/internal/ops/set.go:916) to complete moved or moving-to-procurement inventory for arbitrary item IDs; ChatNotify (:1871, sends a chat-message notification email to any profile's users); EnqueueShipmentLabels (:1647, publishes a print job for any shipment KSUID, and ledger/internal/ops/printjobs.go:26 has no check). DEMOTED / NOT CLAIMED: ReleaseQualityFlag (:1672) is not unchecked, because releaseQualityFlag (graph/shipment_edits.go:712) enforces features.WarehouseQualityControl and access.Has(QualityRelease, Write). It lacks a shipment ownership check, the mutation is deprecated and the permission is role-granted, so it is a weaker issue not claimed here. UpdateClaims (:1932 -> graph/claims.go:12) only re-syncs Firebase claims for the given emails from the administrator DB, with no privilege change, so it is informational/low (a forced claims refresh for arbitrary users) and not claimed. Anonymous reach of these mutations is a separate candidate. Source review only; nothing was run.",
+    "root_cause": "The resolvers were written without the auth.Checks(PartyTypes(Admin), PartyTypeForID(...)) pattern used by sibling mutations. The API layer relies only on authentication in AuthOperation, and the downstream trader, ledger and administrator services trust the passed IDs and do no per-caller authorization.",
+    "intended_behavior": "Seller-scoped and admin mutations should require an admin or the owning seller (auth.Checks with PartyTypes and PartyTypeForID, or access.Has). Quote and shipment mutations should require that the caller is a party to the quote or shipment (ShipmentAuthorized or equivalent). ChatNotify and EnqueueShipmentLabels should be limited to a party of the profile or shipment, or to admins.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "/Users/pedreviljoen/Documents/work/nile/core/backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1518,
+        "scope": "mutationResolver.VolumePriceAdjustment",
+        "description": "GraphQL mutation volumePriceAdjustment(sellerID, productTypeID, quantity, percentage) is reachable by any authenticated user; the resolver has no auth check."
+      },
+      {
+        "kind": "propagation",
+        "file": "/Users/pedreviljoen/Documents/work/nile/core/backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1563,
+        "scope": "mutationResolver.UpdateSellerCutoff -> Resolver.updateSellerCutoff (graph/seller.go:46)",
+        "description": "Same pattern: caller-supplied sellerID selects the profile, which is rewritten via Administrator.Set with no ownership check."
+      },
+      {
+        "kind": "propagation",
+        "file": "/Users/pedreviljoen/Documents/work/nile/core/backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1941,
+        "scope": "mutationResolver.SetShipmentItemStatus / SetInventoryStatus (:1955)",
+        "description": "Caller-supplied item IDs go straight to Ledger.Set with no shipment party check."
+      },
+      {
+        "kind": "sink",
+        "file": "/Users/pedreviljoen/Documents/work/nile/core/backend/go/trader/internal/ops/inputs.go",
+        "line": 88,
+        "scope": "Resolver.maybeSetVolumeAdjustments",
+        "description": "Persists the volume adjustment for the supplied seller in the DB (volumeadjustments.SetTx) with no caller authorization, changing buyer pricing for another seller's products."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "/Users/pedreviljoen/Documents/work/nile/core/backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1518,
+        "description": "VolumePriceAdjustment builds trader.VolumeAdjustmentInput from raw args and calls r.Trader.Set with no auth.Checks."
+      },
+      {
+        "file": "/Users/pedreviljoen/Documents/work/nile/core/backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1534,
+        "description": "Sibling SeasonalityToggle uses auth.Checks(Admin, PartyTypeForID(sellerID, Seller)), showing the intended control is missing on VolumePriceAdjustment."
+      },
+      {
+        "file": "/Users/pedreviljoen/Documents/work/nile/core/backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1563,
+        "description": "UpdateSellerCutoff has no check before updateSellerCutoff."
+      },
+      {
+        "file": "/Users/pedreviljoen/Documents/work/nile/core/backend/go/api/internal/graph/seller.go",
+        "line": 46,
+        "description": "updateSellerCutoff fetches the profile by caller-supplied sellerID and writes SellerCutOff and SellerMarketClose through Administrator.Set."
+      },
+      {
+        "file": "/Users/pedreviljoen/Documents/work/nile/core/backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1130,
+        "description": "UploadPop attaches a caller-supplied URL to any quoteID via Trader.Set, with no check."
+      },
+      {
+        "file": "/Users/pedreviljoen/Documents/work/nile/core/backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1941,
+        "description": "SetShipmentItemStatus and SetInventoryStatus (:1955) pass IDs to Ledger.Set with no check."
+      },
+      {
+        "file": "/Users/pedreviljoen/Documents/work/nile/core/backend/go/ledger/internal/ops/set.go",
+        "line": 916,
+        "description": "Downstream ledger op completes moved inventory for the supplied IDs with no caller authorization."
+      },
+      {
+        "file": "/Users/pedreviljoen/Documents/work/nile/core/backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1871,
+        "description": "ChatNotify looks up any profileID and notifies its user emails with no check."
+      },
+      {
+        "file": "/Users/pedreviljoen/Documents/work/nile/core/backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1647,
+        "description": "EnqueueShipmentLabels passes any shipment KSUID to Ledger.EnqueueShipmentLabels with no check (ledger/internal/ops/printjobs.go:26 also has none)."
+      },
+      {
+        "file": "/Users/pedreviljoen/Documents/work/nile/core/backend/go/auth/auth.go",
+        "line": 404,
+        "description": "The only global gate in AuthOperation is that the user is authenticated (or the operation name is in publicOperations) plus a platform check. There is no role check, and gqlgen has no schema directives on these fields."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "Attacker needs any valid authenticated account, e.g. a Buyer, on a permitted platform."
+      },
+      {
+        "kind": "data_state",
+        "description": "Attacker needs a target seller, profile, quote, shipment or item ID. Several of these are sequential or enumerable ints; shipment KSUIDs must be known."
+      },
+      {
+        "kind": "environmental_dependency",
+        "description": "Downstream services are assumed to accept the API's calls as trusted. No per-caller check was found in the trader, ledger or administrator ops reviewed. Network-level ingress is not verified."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "A logged-in Buyer on another tenant sends GraphQL mutations naming another seller's or profile's IDs.",
+      "payloads": [
+        "mutation { volumePriceAdjustment(sellerID: <victimSellerID>, productTypeID: <id>, quantity: 1, percentage: 90.0) }",
+        "mutation { updateSellerCutoff(sellerID: <victimSellerID>, marketClose: \"<day>\", cutoff: 0) }",
+        "mutation { chatNotify(profileID: <victimProfileID>) }"
+      ],
+      "instructions": [
+        "Authenticate as an ordinary Buyer.",
+        "Send the mutation with a victim seller or profile ID.",
+        "The call returns true and the victim's data is modified or a notification is sent."
+      ],
+      "observed_result": "Source-level observation, not a runtime result: no auth.Checks, access.Has or ownership comparison exists in the resolver, in its helper, or in the downstream trader, ledger or administrator ops on these paths. The calls were not run."
+    },
+    "remediation": {
+      "strategy": "Add auth.Checks(ctx, auth.PartyTypes(users.PartyTypeAdmin), auth.PartyTypeForID(sellerID, users.PartyTypeSeller)) to seller-scoped mutations (VolumePriceAdjustment, UpdateSellerCutoff). Add a quote or shipment party check, as ShipmentAuthorized does, to UploadPop, SetShipmentItemStatus, SetInventoryStatus and EnqueueShipmentLabels. Restrict ChatNotify to a participant of the chat or to admins. Consider enforcing a default-deny mutation-level directive.",
+      "code_changes": []
+    },
+    "severity": {
+      "likelihood": {
+        "score": "high",
+        "reason": "Any authenticated user can call these mutations with no preconditions beyond knowing or guessing IDs."
+      },
+      "impact": {
+        "score": "medium",
+        "reason": "Cross-tenant writes to seller pricing and cutoff, inventory status, quote proof of payment, plus notification and print-job abuse. No direct RCE or data read."
+      },
+      "overall_severity": "high"
+    },
+    "confidence": {
+      "score": "medium",
+      "reason": "The absence of checks was read in the resolver, helper and downstream ops, with no middleware or directive found. Which roles can reach each mutation through client platform gating and deployment ingress was not verified. Downstream services were not exhaustively reviewed."
+    }
+  },
+  "separate_root_causes": [
+    "updateClaims lets any authenticated user force a claims refresh for arbitrary emails (low or informational, no privilege change)",
+    "releaseQualityFlag lacks a shipment ownership check, though it is gated by feature and QualityRelease permission (deprecated, low)"
+  ]
+}

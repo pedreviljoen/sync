@@ -1,0 +1,135 @@
+{
+  "decision": "confirmed",
+  "record": {
+    "verdict": "confirmed",
+    "fingerprint": "nilocloud/subscriptions-auth-noop",
+    "title": "nilocloud /v1/subscriptions/* routes have no effective authentication (discarded r.WithContext result); unauthenticated callers can drive Pub/Sub job dispatch",
+    "description": "authMiddleware matches the /v1/subscriptions prefix but its only action is calling r.WithContext(...) and discarding the returned request. No token, secret, or OIDC/JWT check is performed. POST /v1/subscriptions/nilo is wrapped only by this middleware and passes caller-supplied base64 message data straight to handlePubSubMessage, which dispatches privileged ops jobs (nexport pipeline start/pause/export/import/resume, consumer-unblock cursor skipping across six services, mache store restore). POST /v1/subscriptions/cloudbuild is equally open and feeds Slack notification logic. The service is deployed with --allow-unauthenticated in cloudbuild.yaml. Sibling prefixes /v1/webhooks, /v1/events and /v1/mache each do enforce a token, so the missing check on /v1/subscriptions is an outlier. The downstream gRPC Jobs handlers (ledger/administrator ops Jobs) perform no user or role check, so the discarded robot identity is not a hidden control; nilocloud's own gRPC calls carry through, and the job runs regardless.",
+    "root_cause": "The middleware branch for /v1/subscriptions does `r.WithContext(auth.NewContexWithUser(...UsrRobot()))` and drops the result (http.Request.WithContext returns a new request). Even if it had been used, it would only inject a robot identity into the context rather than verify the caller. No Pub/Sub push OIDC token verification exists anywhere in the nilocloud handler chain (handlers.go mux, main.go has only sentryhttp wrapping).",
+    "intended_behavior": "Only Google Pub/Sub push (and Cloud Build via Pub/Sub) should be able to invoke these handlers: verify the Google-signed OIDC bearer token (issuer accounts.google.com, audience = service URL, email = the push subscription service account), or at minimum a shared secret like the sibling prefixes, and reject otherwise with 401.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/nilocloud/internal/handlers.go",
+        "line": 18,
+        "scope": "Resolver.ServeHTTP",
+        "description": "Public HTTP route POST /v1/subscriptions/nilo wrapped only by authMiddleware (cloudbuild route at line 19 likewise). Service is exposed unauthenticated at the Cloud Run layer per cloudbuild.yaml."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/middleware.go",
+        "line": 70,
+        "scope": "authMiddleware",
+        "description": "Branch for /v1/subscriptions (line 69) calls r.WithContext(...) and discards the result; no rejection path exists, so next.ServeHTTP runs for every caller."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/pubsub.go",
+        "line": 36,
+        "scope": "Resolver.pubSubHandler",
+        "description": "Reads the body, unmarshals WrappedMessage with no signature/OIDC/secret verification and passes message.data to handlePubSubMessage."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/cloud.go",
+        "line": 63,
+        "scope": "Resolver.handlePubSubMessage",
+        "description": "Switches on attacker-chosen job.Type: nexport-start (line 64), nexport-pause-consumers (86), nexport-export/import/finish/resume, consumer-unblock (125) with attacker-chosen service/consumer/expected_cursor, mache-restore (157) with attacker-chosen store/revision."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/nilocloud/internal/consumers.go",
+        "line": 73,
+        "scope": "unblock*/pause*Consumers and recoverLedgerMacheStore (mache.go:18)",
+        "description": "Issues privileged gRPC Jobs calls (JobUnblockConsumer, JobPauseConsumer, JobRestoreShipmentsStores/JobRestoreProfilesStore) to administrator, ledger, trader, postman, harvester, librarian; the Jobs handlers perform no user/role check."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/nilocloud/internal/middleware.go",
+        "line": 70,
+        "description": "Result of r.WithContext discarded; only code on the /v1/subscriptions branch."
+      },
+      {
+        "file": "backend/go/nilocloud/internal/middleware.go",
+        "line": 24,
+        "description": "Contrast: /v1/webhooks (line 43), /v1/events (54) and /v1/mache (73) branches compare a token and return 401."
+      },
+      {
+        "file": "backend/go/nilocloud/internal/handlers.go",
+        "line": 18,
+        "description": "Only authMiddleware wraps the nilo subscription route; no other middleware in handlers.go or cmd/server/main.go (line 181 wraps only with sentryhttp)."
+      },
+      {
+        "file": "backend/go/nilocloud/internal/pubsub.go",
+        "line": 16,
+        "description": "Handler has no auth/OIDC check, parses and dispatches the body."
+      },
+      {
+        "file": "backend/go/nilocloud/internal/cloudbuild.go",
+        "line": 21,
+        "description": "Cloud Build handler likewise has no verification."
+      },
+      {
+        "file": "backend/go/nilocloud/cloudbuild.yaml",
+        "line": 45,
+        "description": "Deploy step uses --allow-unauthenticated."
+      },
+      {
+        "file": "backend/go/thoth/handlers.go",
+        "line": 249,
+        "description": "clientUnaryInterceptor forwards a user FID only if present in context; server interceptor (line 160) tolerates an empty user and ops Jobs (e.g. ledger/internal/ops/ops.go:1058) check no role, so downstream does not gate the call."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "network_routing",
+        "description": "Attacker must reach the nilocloud Cloud Run URL; source (cloudbuild.yaml --allow-unauthenticated; Slack/Sentry webhooks must also be reachable) indicates it is public, but live IAM/ingress settings were not observed."
+      },
+      {
+        "kind": "environmental_dependency",
+        "description": "Attacker needs the service URL and valid job JSON (types/consumer names are visible in the repository)."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "Unauthenticated internet client with the nilocloud service URL.",
+      "payloads": [
+        "POST /v1/subscriptions/nilo with body {\"message\":{\"data\":\"<base64 of {\\\"type\\\":\\\"nexport-pause-consumers\\\",\\\"info\\\":\\\"<base64 JSON string of a database name>\\\"}>\",\"id\":\"1\"},\"subscription\":\"x\"} and no Authorization header",
+        "consumer-unblock variant: data = base64 of {\"type\":\"consumer-unblock\",\"service\":\"ledger\",\"consumer\":\"<id>\",\"expected_cursor\":<n>}"
+      ],
+      "instructions": [
+        "Send the POST without any credentials.",
+        "Handler returns 200 and the dispatched job runs; a failing job returns 500 with errors logged."
+      ],
+      "observed_result": "Source-level observation only, not a runtime result: the middleware has no rejecting path for /v1/subscriptions, the handler performs no verification, and the dispatch reaches the gRPC Jobs calls. Nothing was executed."
+    },
+    "remediation": {
+      "strategy": "Verify the Pub/Sub push OIDC token (google.golang.org/api/idtoken.Validate with audience and expected service-account email) for /v1/subscriptions/*, returning 401 on failure; also set the Cloud Run service to require authentication for these paths where feasible (separate internal service or IAM invoker only for the push service account), and fix the discarded WithContext by assigning `r = r.WithContext(...)` only after verification.",
+      "code_changes": [
+        {
+          "file_name": "backend/go/nilocloud/internal/middleware.go",
+          "fixed_code": "if strings.HasPrefix(r.URL.Path, \"/v1/subscriptions\") {\n\tif err := verifyPubSubOIDC(r); err != nil {\n\t\thttp.Error(w, \"Unauthorized\", http.StatusUnauthorized)\n\t\treturn\n\t}\n\tr = r.WithContext(auth.NewContexWithUser(r.Context(), auth.UsrRobot()))\n}"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "medium",
+        "reason": "No auth is present on the path in source and the deploy command allows unauthenticated invocation, but the URL must be known and live Cloud Run ingress/IAM was not observed."
+      },
+      "impact": {
+        "score": "high",
+        "reason": "An unauthenticated caller can pause consumers across all databases, skip stuck events (permanently advancing cursors), trigger mache store restores, and start the nexport data refresh pipeline; this is unauthenticated remote disruption/mutation of shared internal services."
+      },
+      "overall_severity": "high"
+    },
+    "confidence": {
+      "score": "medium",
+      "reason": "Missing control is directly visible in source on every path; confidence is capped by unobserved deployment facts (Cloud Run IAM/ingress, whether an upstream proxy enforces auth) and by not tracing every downstream job's data effect."
+    }
+  },
+  "separate_root_causes": [
+    "backend/go/nilocloud/internal/middleware.go:73-83: /v1/mache branch reads ROBOT_TOKEN from env and does not reject when it is empty (an empty bearer would match an unset token); also uses non-constant-time compare. Likewise /v1/webhooks and /v1/events use non-constant-time comparison; and /v1/webhooks takes the token from the query string. Worth separate review.",
+    "backend/go/nilocloud/internal/handlers.go:13-15,26-28: Slack and Gerrit routes are registered without authMiddleware; the Gerrit checks routes show no source-visible auth in the handler registration (not verified in handlers)."
+  ]
+}

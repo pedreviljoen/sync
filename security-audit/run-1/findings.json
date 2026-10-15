@@ -1,0 +1,2132 @@
+[
+  {
+    "verdict": "needs_validation",
+    "fingerprint": "H5-admin-not-platform-scoped",
+    "title": "Admin-party GraphQL resolvers do not bind the target profile to the caller's platform (AdminProfileID)",
+    "description": "Admin-party callers can supply an arbitrary profile ID to GraphQL resolvers (Profile, ProfileNew, AccountingDoc and similar) and the target profile's AdminProfileID is never compared with the caller's AdminProfileID. checkPlatform only checks that the caller's own AdminProfileID equals the X-Platform header. It does not limit which profiles the caller may read. Whether this is a real cross-tenant break or intended staff-wide access depends on whether the four platforms (1 Nile, 2 Freshmark, 3 Nile Inputs, 4 Villa) are separate organizations or all Nile-staffed. Source cannot decide that, so the verdict stays needs_validation. This was a source-only review; no code was run.",
+    "claimed_root_cause": "Authorization for Admin party type is role-only (PartyTypeAdmin) with no comparison of the target profile's AdminProfileID to the caller's AdminProfileID. The platform check at login/request time (checkPlatform) binds the caller to one platform header but not the data they may address.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2461,
+        "scope": "queryResolver.Profile",
+        "description": "Authenticated Admin caller supplies input.ID. If PartyType is Admin and ID is non-zero, the value is used as-is. Non-admins are forced to their own ProfileID."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/auth_checks.go",
+        "line": 78,
+        "scope": "AccountingDocAuthorized",
+        "description": "The check only requires that the caller is Admin or that profileUUID equals the caller's ProfileID. Admin bypasses the profile comparison, with no AdminProfileID comparison."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 494,
+        "scope": "checkPlatform",
+        "description": "Requires usr.AdminProfileID to equal the X-Platform header. This binds the caller to one platform but does not restrict which profile IDs they may query."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2478,
+        "scope": "queryResolver.Profile",
+        "description": "r.Ledger.Profile, r.Administrator.Profiles and r.Ledger.Transactions are called with the caller-chosen input.ID. In the lines reviewed, no profile.AdminProfileID == caller.AdminProfileID check was found."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2467,
+        "description": "Admin may pass any non-zero input.ID. Only non-admins are overridden with their own profile ID."
+      },
+      {
+        "file": "backend/go/api/internal/graph/auth_checks.go",
+        "line": 78,
+        "description": "AccountingDocAuthorized gives Admin an unconditional pass on profile ownership."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 504,
+        "description": "checkPlatform compares only the caller's AdminProfileID with the X-Platform header."
+      },
+      {
+        "file": "backend/go/ledger/types.go",
+        "line": 165,
+        "description": "Profile carries AdminProfileID, so a per-platform comparison was feasible but is not applied in these resolvers."
+      },
+      {
+        "file": "backend/go/ledger/internal/ops/shipment_actions.go",
+        "line": 1483,
+        "description": "Calibration: some write paths do compare seller and buyer AdminProfileID, so platform scoping is enforced selectively in places. This suggests it is a known concern. It does not cover the read resolvers named in the candidate."
+      },
+      {
+        "file": "docs/shipit-core-connector-plan.md",
+        "line": 53,
+        "description": "Docs describe platforms by admin ID (1 Nile, 2 Freshmark, 3 Nile Inputs, 4 Villa) and say the platform check is a sign-in binding. Nothing in the docs says whether the platforms are separate legal or organizational tenants."
+      }
+    ],
+    "blockers": [
+      "Whether the four platforms are separate organizations or tenants with distinct staff, as opposed to one company's staff operating multiple brands, is a business and deployment fact that is not in source. If all admins are Nile staff, this is a design choice and not a security boundary.",
+      "Source review covered only the resolvers and auth checks. It did not exhaustively confirm that the ledger and administrator services (r.Ledger.Profile, Administrator.Profiles, Transactions) do not scope by the caller's AdminProfileID in the database queries. The auth context is passed in, so a downstream filter is possible.",
+      "Whether Admin-party users are in practice provisioned per platform, so that a Villa or Inputs admin is a different population from Nile staff, is not visible in source."
+    ],
+    "validation_plan": {
+      "local": "Read the ledger Profile, Transactions and administrator Profiles implementations to see whether any query filters by auth.UserFromContext(ctx).AdminProfileID. Then run a local test with seeded profiles under two different AdminProfileIDs. Query as a platform-1 admin with a platform-2 profile ID and check whether data is returned. Use the repo's own test harness on dummy data only.",
+      "deployment": "The owner should state whether Freshmark, Nile Inputs and Villa admins are distinct organizations, or whether external or partner staff hold Admin party type on any platform. In production Firebase and the users table, list the distinct Admin-party users per AdminProfileID. Review resolver access logs for admin queries whose profile ID belongs to a different AdminProfileID than the caller. Do not probe live."
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "H5-editshipment-no-ownership",
+    "title": "editShipment/editShipmentItem authorize by party type only, with no check that the caller's profile is a party to the shipment (cross-tenant write)",
+    "description": "The editShipment and editShipmentItem GraphQL mutations load a shipment by caller-supplied ID and authorize through EditShipmentAuthorised, which only checks the caller's PartyType (admin, or buyer/seller if the shipment type has a buyer/seller). It never compares the caller's ProfileID to the shipment's BuyerID, SellerID or AdminID. The edit is then applied through Ledger.Set or EditOrders with no further identity check. Any authenticated Seller or Buyer who knows another tenant's shipment ID can therefore apply edits, dispatch, receive, cancel or complete intents to that shipment. The sibling read-path check EditShipmentAuthorized, which calls ShipmentAuthorized (IsParty) and CheckRoleMayEdit, exists but is used only by a read query, not by these mutations.",
+    "root_cause": "EditShipmentAuthorised (auth_checks.go:127) gates on auth.PartyTypes(...) and shipment-type predicates (smt.HasSeller(), smt.HasBuyer()) only. It has no ownership check (ShipmentAuthorized/IsParty, or auth.PartyTypeForID). fetchLedgerShipment does not scope by caller profile, and the edit handlers and Ledger.Set take no user identity.",
+    "intended_behavior": "A Seller or Buyer may mutate a shipment only if their profile is a party to it (shipment.IsParty(user.ProfileID)), as enforced for reads by ShipmentAuthorized and by EditShipmentAuthorized (auth_checks.go:182) on the read path. Admins are exempt.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1595,
+        "scope": "mutationResolver.EditShipment",
+        "description": "Authenticated GraphQL mutation editShipment(input: EditShipmentInput!) (schema.gql:10099). input.ID is a caller-supplied shipment KSUID."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/shipments.go",
+        "line": 59,
+        "scope": "Resolver.fetchLedgerShipment",
+        "description": "Parses the ID and fetches the shipment via Ledger.Shipments with NewShipmentFilterByIDs (shipments.go:83). The filter has no caller-profile scoping."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1608,
+        "scope": "mutationResolver.EditShipment",
+        "description": "Calls EditShipmentAuthorised(ctx, input, smt). The same check is used at schema.resolvers.go:1746 (EditShipmentItem) and shipment_edits.go:519."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/auth_checks.go",
+        "line": 127,
+        "scope": "EditShipmentAuthorised",
+        "description": "Builds a role list (admin, plus buyer/seller if smt.HasBuyer()/HasSeller() for the intent) and returns auth.Checks(ctx, auth.PartyTypes(roles...)). auth.PartyTypes (auth/checks.go:50) compares only usr.PartyType. No ProfileID vs BuyerID/SellerID/AdminID comparison exists."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/internal/graph/shipment_edits.go",
+        "line": 87,
+        "scope": "mutationResolver.editShipment",
+        "description": "Dispatches by intent to handlers (applyEditShipmentForSeller :242, applyEditShipmentNonAdmin :220, applyEditShipmentUpdate :319, dispatchSellerCustom, receiveBuyerCustom) that write via Ledger.Set or EditOrders. None of these checks IsParty or the profile ID, so the other tenant's shipment is modified."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/api/internal/graph/auth_checks.go",
+        "line": 111,
+        "description": "ShipmentAuthorized (IsParty check) exists but is not called from EditShipmentAuthorised or from the EditShipment/EditShipmentItem resolvers."
+      },
+      {
+        "file": "backend/go/api/internal/graph/auth_checks.go",
+        "line": 182,
+        "description": "EditShipmentAuthorized (with the z) does ShipmentAuthorized + CheckRoleMayEdit. It is referenced only at schema.resolvers.go:3670, in a read query, not in the mutations."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1746,
+        "description": "EditShipmentItem repeats the same fetch followed by EditShipmentAuthorised, then editShipmentItem."
+      },
+      {
+        "file": "backend/go/api/internal/shipments/auth_checks.go",
+        "line": 11,
+        "description": "CheckRoleMayEdit is also party-type/platform based only, with no ownership check."
+      },
+      {
+        "file": "backend/go/ledger/shipments.go",
+        "line": 5743,
+        "description": "IsParty compares the profile ID to BuyerID/SellerID/AdminID. It is not used on the mutation path."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "Attacker holds a valid authenticated Seller or Buyer session (any tenant)."
+      },
+      {
+        "kind": "data_state",
+        "description": "The attacker must know the target shipment's KSUID, which is not enumerable by guessing. Whether IDs leak to other tenants was not established from source."
+      },
+      {
+        "kind": "data_state",
+        "description": "The shipment's type must have a seller or buyer, and the intent must be one for which that party type is allowed. For example, EditForSeller, DispatchSeller, Complete and Cancel on external shipments."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "A seller or buyer at tenant A with a valid session who obtains the ID of a shipment between other parties.",
+      "payloads": [
+        "mutation { editShipment(input:{id:\"<other tenant shipment KSUID>\", intent:EDIT_FOR_SELLER, ...}) { success } }"
+      ],
+      "instructions": [
+        "Authenticate as a Seller or Buyer profile that is not a party to the target shipment.",
+        "Send the editShipment (or editShipmentItem) mutation with the target shipment ID and a permitted intent.",
+        "The resolver passes EditShipmentAuthorised because only PartyType is checked, and the edit is persisted via Ledger.Set."
+      ],
+      "observed_result": "Source-level observation, not a runtime result: no ownership check exists on any path from the resolvers to Ledger.Set. The only gate is PartyType membership."
+    },
+    "remediation": {
+      "strategy": "Call ShipmentAuthorized(ctx, smt) (or use EditShipmentAuthorized with IsParty) in EditShipment, EditShipmentItem and the shipment_edits.go:519 path before any edit. Admins remain exempt via party-type logic. Consider enforcing ownership inside the shared editShipment entry too, and add a regression test with a non-party seller and buyer.",
+      "code_changes": [
+        {
+          "file_name": "backend/go/api/internal/graph/auth_checks.go",
+          "fixed_code": "func EditShipmentAuthorised(ctx context.Context, input model.EditShipmentInput, smt ledger.Shipment) error {\n\tif auth.UserFromContext(ctx).PartyType != users.PartyTypeAdmin {\n\t\tif err := ShipmentAuthorized(ctx, smt); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\t// ... existing role checks\n}"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "medium",
+        "reason": "Any authenticated buyer or seller can attempt it. The attacker needs a valid shipment KSUID for another tenant, which is not guessable, and exposure of such IDs to other tenants is unobserved. Intents are also limited by shipment type."
+      },
+      "impact": {
+        "score": "high",
+        "reason": "Cross-tenant write to shipments, covering edits, dispatch, receive, cancel and complete state changes on orders belonging to other parties."
+      },
+      "overall_severity": "medium"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "The absent ownership check was verified in the resolvers, EditShipmentAuthorised, auth.Checks/PartyTypes, fetchLedgerShipment and the edit handlers. Ledger.Set takes no user identity. Not run. The ID-disclosure prerequisite is unverified, which is why likelihood and overall severity are held at medium."
+    }
+  },
+  {
+    "verdict": "needs_validation",
+    "fingerprint": "H5-logo-ssrf",
+    "title": "Profile logo URL fetched server-side without destination restriction when rendering document PDFs (blind SSRF)",
+    "description": "A user holding ProfileInformation:Write on a company profile can store an arbitrary URL string as the profile logo resource. The only validation is url.Parse, which accepts any string. When a shipment document is built, the admin or seller logo URL becomes SourceDoc.Info.Logo. GET /docs/pdf then renders the document in the API process. docpdf.header treats any value starting with 'http' as a logo URL and calls LogoCache.fetch. That fetch uses http.DefaultClient (NewLogoCache(nil)), which has no scheme, host, IP-range or redirect restriction. The result is an authenticated, blind, GET-only server-side request to any host the API process can reach, with a 15s timeout. The response is not returned to the caller. A non-image or non-200 response draws nothing. A 5xx response surfaces as an error. The only visible effect is that a response that decodes as an image is embedded in the rendered PDF. Impact is limited by the GET-only method, the lack of attacker-chosen headers, the lack of a response channel for non-images, and the likely IAM or authentication requirements on internal services. io.ReadAll on the response body is unbounded, so a large response could cause memory pressure. Whether the render host can reach valuable unauthenticated internal HTTP targets is a deployment fact that cannot be settled from source.",
+    "claimed_root_cause": "User-controlled logo URL is validated only by url.Parse and later fetched by LogoCache.fetch with an unrestricted http.Client, with no allow-list of hosts or schemes (for example the upload bucket or CDN), no blocking of private or link-local IPs, and no response size limit.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/customers/company.go",
+        "line": 631,
+        "scope": "company profile form save (profileLogo case), reachable by users with ProfileInformation Write (editProfile at line 67)",
+        "description": "The profileLogo field value is parsed with field.ParseValidURLs. The URLs are stored at line 705 as ap.Resources[administrator.RscLogo]."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/form/field/field.go",
+        "line": 811,
+        "scope": "field.ParseValidURLs",
+        "description": "Each delimited value is checked only with url.Parse, which accepts nearly any string. No scheme or host check is applied."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/sourcedoc.go",
+        "line": 311,
+        "scope": "buildLogo (and buildLogo_legacy at line 44)",
+        "description": "The admin profile's first logo URL, or the seller's logo URL for seller shipments (lines 316-319), is returned as doc.Info.Logo (assigned at lines 171 and 302)."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/docs/docpdf/docpdf.go",
+        "line": 467,
+        "scope": "resolveLogo and renderer.header (lines 359-363)",
+        "description": "Any logo string starting with 'http' is classified logoDoc and passed to opts.Logos.logo(ctx, info.Logo)."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/docs/docpdf/logocache.go",
+        "line": 99,
+        "scope": "LogoCache.fetch",
+        "description": "c.client.Do(req) issues a GET to the attacker-supplied URL using http.DefaultClient (handler.go line 48, NewLogoCache(nil)). The body is read in full at line 114 and decoded with image.DecodeConfig at line 118."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/api/internal/form/field/field.go",
+        "line": 819,
+        "description": "Only url.Parse is checked for logo URLs."
+      },
+      {
+        "file": "backend/go/api/docs/docpdf/logocache.go",
+        "line": 49,
+        "description": "A nil client falls back to http.DefaultClient with no dialer, redirect or IP restrictions."
+      },
+      {
+        "file": "backend/go/api/docs/handler.go",
+        "line": 48,
+        "description": "PDFHandler constructs the cache with NewLogoCache(nil). The handler is authenticated via AuthHTTP (line 58), and the document resolves through the caller's own authorization."
+      },
+      {
+        "file": "backend/go/api/docs/docpdf/logocache.go",
+        "line": 105,
+        "description": "Only status 200 proceeds. 5xx returns an error that is surfaced to the caller (limited error oracle). Other statuses return an empty result. Non-images draw nothing, so there is no response-body exfiltration for non-image content."
+      },
+      {
+        "file": "backend/go/api/docs/docpdf/logocache.go",
+        "line": 114,
+        "description": "io.ReadAll has no size limit."
+      }
+    ],
+    "blockers": [
+      "Egress and reachability facts are not in source: whether the API/docs process can reach internal HTTP services that are unauthenticated or lack a Metadata-Flavor-style header requirement.",
+      "Which roles hold ProfileInformation Write on seller and admin profiles in production, and whether those are external lower-trust tenants or only staff.",
+      "Source shows no response channel beyond image embedding in the PDF and a 5xx error oracle, so the value of the SSRF depends on deployment network layout."
+    ],
+    "validation_plan": {
+      "local": "In a dev environment with synthetic data only, set a logo on a test seller profile to a URL on a local listener that logs requests. Render a shipment document through GET /docs/pdf and confirm one GET arrives from the API process. Then point the logo at a local image served by that listener and confirm it is embedded. Also confirm a non-image response and a non-200 response draw no logo. Confirm that no private-IP block exists on the client.",
+      "deployment": "Owner check: review the Cloud Run service egress and VPC connector or firewall configuration for the API service and list any internal HTTP endpoints reachable without authentication. Review the profile-permission role assignments to see whether external sellers hold ProfileInformation Write. Optionally query stored logo resources for URLs pointing to non-upload hosts. Do not probe live."
+    }
+  },
+  {
+    "fingerprint": "H5-packhouse-any-seller",
+    "verdict": "confirmed",
+    "title": "Packhouse allocation mutations accept any seller's sellerID from any Seller/Admin user (ID binding is dead code)",
+    "description": "PackhouseSetAllocation, PackhouseItemAllocations, PackhouseItemMixed and PackhouseClearInventories authorize with auth.Checks(PartyTypes(Admin, Seller), PartyTypeForID(sellerID)). auth.Checks has ANY semantics and PartyTypeForID is called without party types, so it can never be true. Any authenticated Seller therefore passes the first check for every sellerID. The only other gate is the role permission PackhouseAllocations/Write, which is global and not bound to a seller. A Seller-party user holding a Packhouse or PackhouseWorker role (or a Tech or Super role) can set or clear another seller's packhouse stock and allocations in the ledger.",
+    "root_cause": "The ownership check auth.PartyTypeForID(sellerID) is called with an empty allowed-party-type list. slices.Contains over an empty slice is always false, so the check can never pass. It is also OR-ed with PartyTypes(Admin, Seller), which already admits every seller regardless of sellerID. The client-supplied sellerID is passed straight to the trader and ledger with no binding to the caller's ProfileID.",
+    "intended_behavior": "A seller-party caller may only act on their own sellerID (PartyTypeForID(sellerID, PartyTypeSeller)). Admins may act on any seller. Per-seller binding should be required, not alternative.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1015,
+        "scope": "mutationResolver.PackhouseSetAllocation",
+        "description": "GraphQL mutation takes a client-supplied input.SellerID. The auth.Checks call passes for any Seller or Admin party type. The same pattern is at lines 1028 (PackhouseItemAllocations), 1041 (PackhouseItemMixed) and 1061 (PackhouseClearInventories)."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/checks.go",
+        "line": 82,
+        "scope": "auth.PartyTypeForID",
+        "description": "With no allowed party types, slices.Contains is always false, so the profile-ID check never passes. auth.Checks (line 40) returns nil if ANY check passes, so PartyTypes(Admin, Seller) alone decides."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1018,
+        "scope": "access.Has(PackhouseAllocations, Write)",
+        "description": "The role permission check is global. It confirms the caller has a role such as Packhouse, PackhouseWorker, Tech or Super, but it is not tied to any sellerID."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/internal/graph/packhouse.go",
+        "line": 1003,
+        "scope": "setPackhouseAllocation / setPackhouseItemAllocations / ledger Set",
+        "description": "The victim sellerID is used to fetch that seller's products via the trader service and to write ledger.NewPackhouseSet(input.SellerID, ...) through r.Ledger.Set. PackhouseClearInventories calls r.Ledger.Set with NewPackhouseClear(sellerID) at schema.resolvers.go:1062. No caller-versus-seller check exists downstream in these functions."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/auth/checks.go",
+        "line": 40,
+        "description": "Checks returns nil if ANY check passes (OR semantics)."
+      },
+      {
+        "file": "backend/go/auth/checks.go",
+        "line": 82,
+        "description": "PartyTypeForID requires the profile ID to match AND the party type to be in a variadic list. Called with no list, the second condition is always false."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1015,
+        "description": "PartyTypes(Admin, Seller) plus PartyTypeForID(input.SellerID) with no party types. Repeated at lines 1028, 1041 and 1061."
+      },
+      {
+        "file": "backend/go/access/access.go",
+        "line": 12,
+        "description": "access.Has only inspects the user's roles and is not bound to a seller."
+      },
+      {
+        "file": "backend/go/access/permissions/permissions.go",
+        "line": 247,
+        "description": "PackhousePermissions and PackhouseWorkerPermissions (line 252) grant PackhouseAllocations Write to those roles."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "Authenticated user with party type Seller (or Admin)."
+      },
+      {
+        "kind": "authorization_role",
+        "description": "The user must hold a role granting PackhouseAllocations/Write (Packhouse, PackhouseWorker, Tech or Super). PackhouseItemMixed additionally requires a native farmer app origin (auth.IsNativeFromContext)."
+      },
+      {
+        "kind": "data_state",
+        "description": "A victim seller with products must exist. Another seller's ID must be known or guessable (int64 profile ID)."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "A seller-party user with a packhouse role, for example a packhouse operator at one seller, calls the mutation with another seller's profile ID.",
+      "payloads": [
+        "mutation { packhouseClearInventories(sellerID: <victimSellerID>) }",
+        "mutation { packhouseSetAllocation(input:{sellerID:<victimSellerID>, allocations:[...]}) }"
+      ],
+      "instructions": [
+        "Authenticate as a Seller-party user holding the Packhouse role.",
+        "Send packhouseClearInventories or packhouseSetAllocation with a sellerID different from the caller's profile ID.",
+        "The auth.Checks call passes on the PartyTypes(Admin, Seller) branch and access.Has passes on the role, so the ledger write executes for the victim seller."
+      ],
+      "observed_result": "Source-level observation, not a runtime result. The ownership check is absent on every path through these four resolvers. Nothing was executed."
+    },
+    "remediation": {
+      "strategy": "Require ownership for seller callers. Allow Admin for any seller, and for Seller allow only PartyTypeForID(sellerID, PartyTypeSeller). Replace the broad PartyTypes(Seller) check with that, and add a regression test for cross-seller calls.",
+      "code_changes": [
+        {
+          "file_name": "backend/go/api/internal/graph/schema.resolvers.go",
+          "fixed_code": "auth.Checks(ctx, auth.PartyTypes(users.PartyTypeAdmin), auth.PartyTypeForID(input.SellerID, users.PartyTypeSeller))"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "medium",
+        "reason": "Requires a Seller-party user with a packhouse-type role and knowledge of a victim seller ID. Who holds these roles in production is not visible in source."
+      },
+      "impact": {
+        "score": "medium",
+        "reason": "Cross-seller write and clear of packhouse stock and allocation ledger data, which can disrupt another seller's inventory and orders. No data read and no account takeover."
+      },
+      "overall_severity": "medium"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "The semantics of Checks, PartyTypes and PartyTypeForID were re-read directly. The sellerID flows unbound to the trader and ledger calls, and no other control was found on the path."
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "H5-resolvers-no-authz-read",
+    "title": "Read resolvers LogisticsDoc, TableDialog, ShipmentDispatchDialog (and seller-side QualityReport) lack any ownership check, exposing other tenants' shipment data to any authenticated user",
+    "description": "Several GraphQL Query resolvers in backend/go/api/internal/graph/schema.resolvers.go take a client-supplied profileID or shipmentID and return data without any role check or ownership check. The Ledger.Shipments read path has no caller scoping. Per resolver: LogisticsDoc (:2786) has no auth.Checks, uses the client profileID directly as a ledger filter, and returns another seller's packing list including buyer shipping addresses. TableDialog (:2922) has no auth.Checks and no ShipmentAuthorized/IsParty check, and returns settlement, payment and charge dialogs with amounts and shipment names for any shipment ID. ShipmentDispatchDialog (:2994) has no checks and returns shipment name, case count and the destination street and city for any shipment ID. QualityReport (:4245) checks party type only (Seller or Admin, Buyer blocked) with no ownership check, so any Seller can read another party's inspection report, seller label and delivery address. Not established as a meaningful leak: ShipmentTransactions (:2880) has no authz but shipmentTransactionsTable skips any transaction not involving the caller's profile (accounts.go:135) and shipmentTotalsInfo is admin-only, so it only leaks the shipment name and open state. DocumentNumber (:4203) is restricted to Seller/Admin and returns only a document number; it has no ownership check, but the impact is trivial. Authenticated-user impact only; anonymous reach is a separate candidate.",
+    "root_cause": "Authorization on these resolvers is either absent or limited to party type. None compare shipment.IsParty(usr.ProfileID) (the existing ShipmentAuthorized helper in auth_checks.go:111) or auth.PartyTypeForID(profileID, ...) against the requested resource. The only global control is AuthOperation (auth/auth.go:373), which authenticates the token but does not authorize per resource, and the ledger Shipments fetch (ledger/internal/ops/ops.go:971) applies no caller scoping.",
+    "intended_behavior": "Sibling resolvers (Shipments :2808, TableGroup, SellerSetup) gate on auth.PartyTypeForID(profileID, ...) or admin, and document resolvers use SourceDocAuthorized/ShipmentAuthorized. These read resolvers should require the caller to be admin or a party to the shipment, or the owner of the requested profileID.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2786,
+        "scope": "queryResolver.LogisticsDoc",
+        "description": "Authenticated Buyer/Seller supplies arbitrary profileID and date. No auth.Checks and no comparison with the caller's profile."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2792,
+        "scope": "queryResolver.LogisticsDoc",
+        "description": "The client profileID goes straight into ledger.SmdProfileIDs for the shipment filter."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/shipments.go",
+        "line": 2597,
+        "scope": "Resolver.fetchShipmentsAndProfiles",
+        "description": "Fetches shipments from Ledger.Shipments (ledger/internal/ops/ops.go:971, no caller scoping) and the associated buyer and seller profiles."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/logisticsdocs.go",
+        "line": 74,
+        "scope": "sellerPackingListTables",
+        "description": "Builds the packing list for the foreign profile, including products and buyer shipping address, and returns it to the caller."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2922,
+        "scope": "queryResolver.TableDialog",
+        "description": "Any authenticated user supplies shipmentID and a dialog type. No auth.Checks and no IsParty check."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/payments.go",
+        "line": 163,
+        "scope": "prepareSettleOrder / paymentDialog / chargeDialog / payCredit",
+        "description": "Settlement and payment dialogs render shipment totals, due amounts and seller or buyer settlement figures for any shipment ID."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2994,
+        "scope": "queryResolver.ShipmentDispatchDialog",
+        "description": "Any authenticated user supplies shipmentID. No checks."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/shipments.go",
+        "line": 6929,
+        "scope": "shipmentDispatchDialog",
+        "description": "Returns shipment name, case count and the buyer or seller destination street and city for another tenant's shipment."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 4245,
+        "scope": "queryResolver.QualityReport",
+        "description": "Party-type check only (Seller or Admin). Any Seller supplies any shipmentID."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/internal/graph/quality.go",
+        "line": 505,
+        "scope": "qualityReportScreenTabs",
+        "description": "Fetches the shipment and its quality reports by ID without an ownership check and returns inspection results, seller label and delivery address."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2786,
+        "description": "LogisticsDoc body has no auth call at all."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2922,
+        "description": "TableDialog uses usr only to fetch the admin profile and has no authorization."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2994,
+        "description": "ShipmentDispatchDialog has no authorization."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 4245,
+        "description": "QualityReport checks only the Seller/Admin party type."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2808,
+        "description": "Comparison baseline: sibling Shipments, TableGroup and SellerSetup do apply party/profile checks."
+      },
+      {
+        "file": "backend/go/api/internal/graph/auth_checks.go",
+        "line": 111,
+        "description": "ShipmentAuthorized (IsParty) exists but is not called by these resolvers."
+      },
+      {
+        "file": "backend/go/api/internal/graph/shipments.go",
+        "line": 59,
+        "description": "fetchLedgerShipment fetches by ID with no identity scoping."
+      },
+      {
+        "file": "backend/go/ledger/internal/ops/ops.go",
+        "line": 971,
+        "description": "Ledger Shipments applies no caller scoping."
+      },
+      {
+        "file": "backend/go/api/internal/graph/accounts.go",
+        "line": 135,
+        "description": "Counter-evidence: ShipmentTransactions filters transactions to the caller's profile, so it is excluded from the confirmed set."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 373,
+        "description": "AuthOperation only authenticates and applies platform checks; no resource authorization."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "Valid authenticated Buyer or Seller account. Admin is not required. QualityReport additionally needs a Seller account."
+      },
+      {
+        "kind": "data_state",
+        "description": "TableDialog, ShipmentDispatchDialog and QualityReport need a victim shipment KSUID, which is not guessable and must be obtained from another channel. LogisticsDoc needs only a victim profileID (an int64, enumerable) and a dispatch date with matching created-status shipments."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "An authenticated seller or buyer on the platform queries another tenant's profile or shipment.",
+      "payloads": [
+        "query { logisticsDoc(type: <SELLER_PACKING_LIST enum>, profileID: <victim profile id>, date: \"<dispatch date>\") { ... } }",
+        "query { tableDialog(type: SETTLEMENT, shipmentID: \"<victim shipment id>\") { ... } }",
+        "query { shipmentDispatchDialog(shipmentID: \"<victim shipment id>\") { ... } }"
+      ],
+      "instructions": [
+        "Authenticate as an ordinary seller or buyer.",
+        "Call logisticsDoc with another seller's profileID and a dispatch date.",
+        "Call tableDialog or shipmentDispatchDialog with a shipment ID belonging to another tenant."
+      ],
+      "observed_result": "Source-level observation, not a runtime result: no check on any code path compares the caller's profile with the requested profile or shipment, and the data layer does not scope by caller, so the data is returned to any authenticated caller."
+    },
+    "remediation": {
+      "strategy": "Add per-resource authorization to each resolver. For LogisticsDoc, require auth.PartyTypeForID(profileID, Seller) or Admin. For TableDialog, ShipmentDispatchDialog, QualityReport, ShipmentTransactions and DocumentNumber, call ShipmentAuthorized(ctx, shipment) unless the caller is Admin. Consider restricting the settlement and payment dialogs to Admin.",
+      "code_changes": []
+    },
+    "severity": {
+      "likelihood": {
+        "score": "medium",
+        "reason": "Any authenticated account can call these. LogisticsDoc is enumerable through integer profile IDs, but the shipment-ID-based resolvers need an unguessable KSUID that must leak elsewhere."
+      },
+      "impact": {
+        "score": "medium",
+        "reason": "Cross-tenant read of packing lists, buyer addresses, settlement and payment amounts and inspection reports. There is no write or code execution and no secrets."
+      },
+      "overall_severity": "medium"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "Every cited resolver was re-read and no authorization or scoping exists on the path (resolver, helper, ledger and middleware). Deployment facts were not needed for the missing check itself."
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "H5-resolvers-no-authz-write",
+    "title": "Multiple GraphQL mutations perform cross-tenant writes with no caller role or ownership check",
+    "description": "In /Users/pedreviljoen/Documents/work/nile/core/backend/go/api/internal/graph/schema.resolvers.go, a set of mutation resolvers forward caller-supplied seller, profile, quote, shipment or item identifiers to backend services without auth.Checks, access.Has, or any ownership comparison. Sibling resolvers in the same file do enforce these checks (SeasonalityToggle at :1534, SellerLogistics, Notify, Markup, SetRouteRate), which shows the intended pattern. The only gate on the path is AuthOperation (auth/auth.go:373-419), which requires a valid user and platform but not a role. Any authenticated user, including a Buyer, can therefore call these. CONFIRMED (checked individually, no check at the resolver, helper or downstream op): VolumePriceAdjustment (:1518, writes a volume discount for any sellerID via trader maybeSetVolumeAdjustments, trader/internal/ops/inputs.go:88, which has no auth check); UpdateSellerCutoff (:1563 -> graph/seller.go:46, loads any seller profile by ID and rewrites its SellerCutOff and SellerMarketClose); UploadPop (:1130, attaches an arbitrary fileURL as proof of payment to any quoteID); SetShipmentItemStatus (:1941) and SetInventoryStatus (:1955), which drive ledger maybeSetShipmentItemStatus (ledger/internal/ops/set.go:916) to complete moved or moving-to-procurement inventory for arbitrary item IDs; ChatNotify (:1871, sends a chat-message notification email to any profile's users); EnqueueShipmentLabels (:1647, publishes a print job for any shipment KSUID, and ledger/internal/ops/printjobs.go:26 has no check). DEMOTED / NOT CLAIMED: ReleaseQualityFlag (:1672) is not unchecked, because releaseQualityFlag (graph/shipment_edits.go:712) enforces features.WarehouseQualityControl and access.Has(QualityRelease, Write). It lacks a shipment ownership check, the mutation is deprecated and the permission is role-granted, so it is a weaker issue not claimed here. UpdateClaims (:1932 -> graph/claims.go:12) only re-syncs Firebase claims for the given emails from the administrator DB, with no privilege change, so it is informational/low (a forced claims refresh for arbitrary users) and not claimed. Anonymous reach of these mutations is a separate candidate. Source review only; nothing was run.",
+    "root_cause": "The resolvers were written without the auth.Checks(PartyTypes(Admin), PartyTypeForID(...)) pattern used by sibling mutations. The API layer relies only on authentication in AuthOperation, and the downstream trader, ledger and administrator services trust the passed IDs and do no per-caller authorization.",
+    "intended_behavior": "Seller-scoped and admin mutations should require an admin or the owning seller (auth.Checks with PartyTypes and PartyTypeForID, or access.Has). Quote and shipment mutations should require that the caller is a party to the quote or shipment (ShipmentAuthorized or equivalent). ChatNotify and EnqueueShipmentLabels should be limited to a party of the profile or shipment, or to admins.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1518,
+        "scope": "mutationResolver.VolumePriceAdjustment",
+        "description": "GraphQL mutation volumePriceAdjustment(sellerID, productTypeID, quantity, percentage) is reachable by any authenticated user; the resolver has no auth check."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1563,
+        "scope": "mutationResolver.UpdateSellerCutoff -> Resolver.updateSellerCutoff (graph/seller.go:46)",
+        "description": "Same pattern: caller-supplied sellerID selects the profile, which is rewritten via Administrator.Set with no ownership check."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1941,
+        "scope": "mutationResolver.SetShipmentItemStatus / SetInventoryStatus (:1955)",
+        "description": "Caller-supplied item IDs go straight to Ledger.Set with no shipment party check."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/trader/internal/ops/inputs.go",
+        "line": 88,
+        "scope": "Resolver.maybeSetVolumeAdjustments",
+        "description": "Persists the volume adjustment for the supplied seller in the DB (volumeadjustments.SetTx) with no caller authorization, changing buyer pricing for another seller's products."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1518,
+        "description": "VolumePriceAdjustment builds trader.VolumeAdjustmentInput from raw args and calls r.Trader.Set with no auth.Checks."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1534,
+        "description": "Sibling SeasonalityToggle uses auth.Checks(Admin, PartyTypeForID(sellerID, Seller)), showing the intended control is missing on VolumePriceAdjustment."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1563,
+        "description": "UpdateSellerCutoff has no check before updateSellerCutoff."
+      },
+      {
+        "file": "backend/go/api/internal/graph/seller.go",
+        "line": 46,
+        "description": "updateSellerCutoff fetches the profile by caller-supplied sellerID and writes SellerCutOff and SellerMarketClose through Administrator.Set."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1130,
+        "description": "UploadPop attaches a caller-supplied URL to any quoteID via Trader.Set, with no check."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1941,
+        "description": "SetShipmentItemStatus and SetInventoryStatus (:1955) pass IDs to Ledger.Set with no check."
+      },
+      {
+        "file": "backend/go/ledger/internal/ops/set.go",
+        "line": 916,
+        "description": "Downstream ledger op completes moved inventory for the supplied IDs with no caller authorization."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1871,
+        "description": "ChatNotify looks up any profileID and notifies its user emails with no check."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1647,
+        "description": "EnqueueShipmentLabels passes any shipment KSUID to Ledger.EnqueueShipmentLabels with no check (ledger/internal/ops/printjobs.go:26 also has none)."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 404,
+        "description": "The only global gate in AuthOperation is that the user is authenticated (or the operation name is in publicOperations) plus a platform check. There is no role check, and gqlgen has no schema directives on these fields."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "Attacker needs any valid authenticated account, e.g. a Buyer, on a permitted platform."
+      },
+      {
+        "kind": "data_state",
+        "description": "Attacker needs a target seller, profile, quote, shipment or item ID. Several of these are sequential or enumerable ints; shipment KSUIDs must be known."
+      },
+      {
+        "kind": "environmental_dependency",
+        "description": "Downstream services are assumed to accept the API's calls as trusted. No per-caller check was found in the trader, ledger or administrator ops reviewed. Network-level ingress is not verified."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "A logged-in Buyer on another tenant sends GraphQL mutations naming another seller's or profile's IDs.",
+      "payloads": [
+        "mutation { volumePriceAdjustment(sellerID: <victimSellerID>, productTypeID: <id>, quantity: 1, percentage: 90.0) }",
+        "mutation { updateSellerCutoff(sellerID: <victimSellerID>, marketClose: \"<day>\", cutoff: 0) }",
+        "mutation { chatNotify(profileID: <victimProfileID>) }"
+      ],
+      "instructions": [
+        "Authenticate as an ordinary Buyer.",
+        "Send the mutation with a victim seller or profile ID.",
+        "The call returns true and the victim's data is modified or a notification is sent."
+      ],
+      "observed_result": "Source-level observation, not a runtime result: no auth.Checks, access.Has or ownership comparison exists in the resolver, in its helper, or in the downstream trader, ledger or administrator ops on these paths. The calls were not run."
+    },
+    "remediation": {
+      "strategy": "Add auth.Checks(ctx, auth.PartyTypes(users.PartyTypeAdmin), auth.PartyTypeForID(sellerID, users.PartyTypeSeller)) to seller-scoped mutations (VolumePriceAdjustment, UpdateSellerCutoff). Add a quote or shipment party check, as ShipmentAuthorized does, to UploadPop, SetShipmentItemStatus, SetInventoryStatus and EnqueueShipmentLabels. Restrict ChatNotify to a participant of the chat or to admins. Consider enforcing a default-deny mutation-level directive.",
+      "code_changes": []
+    },
+    "severity": {
+      "likelihood": {
+        "score": "high",
+        "reason": "Any authenticated user can call these mutations with no preconditions beyond knowing or guessing IDs."
+      },
+      "impact": {
+        "score": "medium",
+        "reason": "Cross-tenant writes to seller pricing and cutoff, inventory status, quote proof of payment, plus notification and print-job abuse. No direct RCE or data read."
+      },
+      "overall_severity": "medium"
+    },
+    "confidence": {
+      "score": "medium",
+      "reason": "The absence of checks was read in the resolver, helper and downstream ops, with no middleware or directive found. Which roles can reach each mutation through client platform gating and deployment ingress was not verified. Downstream services were not exhaustively reviewed."
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "H5-setuser-self-role-escalation",
+    "title": "Any authenticated user can set roles and password on a user account via the SetUser form (self-service role escalation, cross-user password reset)",
+    "description": "The Form and FormNew GraphQL mutations authorize FormTypeSetUser with an OR of (caller is Admin party type) or (caller's email equals the client-supplied Email form field). The attacker controls that email field, so the check passes for any authenticated user by sending their own email. The same request also carries a separate client-supplied hidden firebase-ID field, a roles multiselect and a password field. The email value is validated as an email but is not tied to the target user ID. handleSetUser passes the fields through customers.UserInput to administrator.UserUpdateInput. The administrator service performs no authorization of its own. It loads the user by the client-supplied ID, calls UpdateUserPassword on that ID, rewrites the roles of that user's DB email via userroles.MatchTx with the client-supplied role list, and pushes the resulting claims to the auth service. The access.Has(ProfileRoles, Write) permission is used only to render the role field in the form UI (customers/user.go:54) and is never enforced on submit. A normal buyer or seller can therefore grant themselves privileged roles (for example RoleSuper) and reset any other user's password by supplying any known Firebase UID.",
+    "root_cause": "The authorization gate for FormTypeSetUser compares the caller's identity to a client-controlled email field rather than to the target user (firebase ID) being modified. No role-assignment permission check (permissions.ProfileRoles) is enforced server-side, and the administrator Set/Update path trusts its caller completely.",
+    "intended_behavior": "A user may update only their own non-privileged profile attributes (name, mobile, theme, market metric, possibly their own password) and the target ID must be forced to the caller's UID. Role changes must require an admin with the ProfileRoles write permission, enforced server-side. Password or role changes for other users must be admin-only.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1146,
+        "scope": "mutationResolver.Form (GraphQL mutation, any authenticated user)",
+        "description": "Starts with chks = [PartyTypes(Admin)]. In the FormTypeSetUser case (1149-1153) it appends auth.Email(f.Value) for the client-supplied field with ID UserEmail. auth.Checks passes if ANY check passes (auth/checks.go:40), so a caller supplying their own email passes. FormNew has the identical logic at ~1218-1224."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/form_input.go",
+        "line": 130,
+        "scope": "formInput / handleSetUser",
+        "description": "Dispatches FormTypeSetUser to handleSetUser (defined ~515), which calls customers.UserInput(fields) and, for a non-new user (firebase ID present), builds ToUserUpdateInput and calls Administrator.Set(InpUserUpdate)."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/customers/user.go",
+        "line": 166,
+        "scope": "UserInput",
+        "description": "Parses the client-supplied firebase ID (userFirebaseID), profileID, password, name, mobile and roles (userRole -> getRoleType) with no role or permission validation. The email field is parsed but is not used as the update target (comment at ~line 223: 'Email is user id, it will be ignored')."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/administrator/internal/ops/ops.go",
+        "line": 42,
+        "scope": "Resolver.Set -> maybeUpdateUsers",
+        "description": "Administrator Set dispatches UserUpdateInput to users.Update with no auth.Checks on the caller (grep of administrator for auth checks finds none on this path)."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/administrator/internal/ops/users/update.go",
+        "line": 66,
+        "scope": "updateTx",
+        "description": "Looks up the user by the client-supplied ID (line 56), calls client.UpdateUserPassword(ID, password) (66), then userroles.MatchTx(userDB.Email, input.Roles()) (85), which inserts and deletes rows in user_roles for the target user. prepareClaimsForUserMutation (~92) then pushes the new roles to Firebase custom claims after commit."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1149,
+        "description": "FormTypeSetUser check is OR(admin party type, caller email equals client-supplied email field). The email is not bound to the target user ID."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1221,
+        "description": "FormNew duplicates the same weak check, so the sibling mutation is equally affected."
+      },
+      {
+        "file": "backend/go/auth/checks.go",
+        "line": 40,
+        "description": "auth.Checks returns nil if ANY check passes, so the Email check alone is sufficient."
+      },
+      {
+        "file": "backend/go/api/internal/graph/customers/user.go",
+        "line": 54,
+        "description": "access.Has(permissions.ProfileRoles, Write) only controls whether the role field is rendered or disabled in the form; it is not enforced on submit. The only other use of ProfileRoles is its definition in access/permissions/permissions.go:28."
+      },
+      {
+        "file": "backend/go/api/internal/graph/customers/user.go",
+        "line": 166,
+        "description": "UserInput accepts the firebase ID, roles and password from client fields with no checks beyond format validation."
+      },
+      {
+        "file": "backend/go/administrator/internal/ops/users/update.go",
+        "line": 85,
+        "description": "Roles are replaced for userDB.Email, resolved from the client-supplied ID rather than the caller. UpdateUserPassword at line 66 is also keyed to that ID. validateUpdateInput only checks that the user exists and that ID and profile ID are present."
+      },
+      {
+        "file": "backend/go/administrator/internal/ops/users/users.go",
+        "line": 80,
+        "description": "Claims are rebuilt from the DB roles (auth.WithUserUpdate(... user.Roles)) and pushed to the auth service, so the escalated roles take effect on the user's token/claims."
+      },
+      {
+        "file": "backend/go/access/access.go",
+        "line": 48,
+        "description": "RoleSuper grants all permissions except tech-only ones, which demonstrates that role values drive authorization decisions."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "Attacker needs any valid authenticated session (any party type: buyer, seller or admin)."
+      },
+      {
+        "kind": "data_state",
+        "description": "For self-escalation the attacker needs their own firebase UID and profile ID (available to them via the SetUser form or their token). To reset another user's password or roles they need that user's firebase UID, which is not a secret but is not necessarily easy to obtain."
+      },
+      {
+        "kind": "system_configuration",
+        "description": "Assumes the auth service applies the pushed custom claims to subsequent tokens, which is the evident design. The deployed token refresh behaviour was not observed."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "A low-privilege authenticated buyer or seller who wants admin-level roles on their own account, or who wants to reset another user's password.",
+      "payloads": [
+        "mutation { form(input:{type:SetUser, fields:[{id:1,value:\"<own email>\"},{id:-3,value:\"<own firebase uid>\"},{id:-2,value:\"<own profile id>\"},{id:7,values:[\"Super\"]}]}) { ... } }"
+      ],
+      "instructions": [
+        "Authenticate as an ordinary buyer or seller.",
+        "Send the Form (or FormNew) mutation with type SetUser, the caller's own email in field 1 (to satisfy auth.Email), the caller's own firebase UID in field -3, the caller's profile ID in field -2, and the desired role(s) in field 7.",
+        "Refresh the token so the new claims are issued.",
+        "To target another user, set field -3 to that user's UID and field 2 to the new password while still sending the attacker's own email in field 1."
+      ],
+      "observed_result": "Source-level observation only; nothing was executed. The only gate is OR(Admin, email equals attacker-supplied field), and the attacker controls the field. No downstream layer (customers.UserInput, administrator.Set, users.Update, userroles.MatchTx) re-checks the caller or the ProfileRoles permission, and the target comes from a client-supplied ID."
+    },
+    "remediation": {
+      "strategy": "Server-side enforcement: for FormTypeSetUser in both Form and FormNew, allow the call only if the caller is an admin or the supplied firebase ID equals the caller's own UID. Ignore the roles field unless access.Has(ctx, permissions.ProfileRoles, permissions.Write) is true. Require admin, or a current-password or re-auth flow, to change a password, and never for other users. Ideally add an authorization check in the administrator service as defence in depth.",
+      "code_changes": [
+        {
+          "file_name": "backend/go/api/internal/graph/customers/user.go",
+          "fixed_code": "// After UserInput(): enforce in handleSetUser\nif !access.Has(ctx, permissions.ProfileRoles, permissions.Write) { user.roles = nil /* keep existing roles */ }\ncu := auth.UserFromContext(ctx)\nif cu.PartyType != users.PartyTypeAdmin && user.id != cu.UID { return errors.New(\"not authorized\", codes.CodeUnauthorized) }"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "high",
+        "reason": "Any authenticated user can trigger it with a single GraphQL mutation. The only extra inputs are their own email and UID, and no unusual preconditions were found in source. Deployment facts such as token refresh and any WAF were not observed."
+      },
+      "impact": {
+        "score": "high",
+        "reason": "Defeats role-based authorization. A user can grant themselves privileged roles (for example Super), and can reset the password of any user whose UID they know, which is account takeover of targeted users. It is not rated critical because it is not unauthenticated and cross-account takeover needs a known target UID."
+      },
+      "overall_severity": "high"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "Every hop was re-read. The OR check, the client-controlled email, the absence of any permission enforcement on submit and the absence of authorization in the administrator service were all verified directly. Runtime effects such as claims refresh were not executed."
+    }
+  },
+  {
+    "verdict": "rejected",
+    "fingerprint": "H5-signup-admin-selfassign",
+    "title": "Public Signup lets an unauthenticated caller self-assign the Nile Admin party type",
+    "description": "The public GraphQL Signup mutation accepts links with Party=Admin on the Nile and Nile Inputs platforms. IsAdminSignup then links the new email to the real Nile admin profile and the user gets Firebase claims for it. The hunter claimed this gives an unauthenticated caller Nile admin access. In production the account is rejected on every authenticated request, so the claim does not hold there. Only non-production projects remain exposed.",
+    "claimed_root_cause": "validateSignupLinks allows Admin links when Platform.IsNileAny(). maybeCreateProfiles then returns the real admin profile IDs from IsAdminSignup() with no check on the caller or email domain. createUser links the new email to that profile and sets Firebase claims (userType=admin, profileId=AdminIDNile or AdminIDNileInputs).",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 774,
+        "scope": "mutationResolver.Signup",
+        "description": "Public GraphQL mutation. It converts the input and calls Administrator.Signup with no identity or role check in the resolver."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/administrator/internal/ops/signup.go",
+        "line": 97,
+        "scope": "validateSignupLinks",
+        "description": "Admin links are accepted when the platform is Nile or Nile Inputs."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/administrator/internal/ops/signup.go",
+        "line": 143,
+        "scope": "maybeCreateProfiles",
+        "description": "IsAdminSignup (administrator/methods.go:924) returns the existing admin profile IDs via Platform.AdminProfileID(). The user is linked to the real Nile admin profile."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/administrator/internal/ops/signup.go",
+        "line": 306,
+        "scope": "createUser",
+        "description": "A Firebase password user is created with ProfileID set to the admin profile. Claims are then built from the DB (users.go:74) and set at signup.go:63."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/auth/auth.go",
+        "line": 555,
+        "scope": "checkUser",
+        "description": "Every authenticated request goes through userFromIDToken (auth.go:487), validateAndGetUser (auth.go:533) and checkUser. In nile-production it rejects a non-google.com provider for @nile.ag emails. It also rejects any account whose ProfileID is AdminIDNile or AdminIDNileInputs unless the email is @nile.ag or on the auditor allowlist. A self-registered password user therefore always fails, so the claimed admin effect does not occur."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/administrator/internal/ops/signup.go",
+        "line": 97,
+        "description": "Admin signup is permitted for Nile and Nile Inputs only. Freshmark and Villa admin links are rejected."
+      },
+      {
+        "file": "backend/go/administrator/methods.go",
+        "line": 924,
+        "description": "IsAdminSignup maps links to real admin profile IDs. This is the weak spot the hunter identified, and it is real."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 487,
+        "description": "The default branch of userFromIDToken calls validateAndGetUser, which calls checkUser on every API request, not only at login."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 555,
+        "description": "checkUser blocks (1) @nile.ag emails that did not sign in with google.com and (2) non-@nile.ag, non-auditor users whose ProfileID is the Nile or Nile Inputs admin profile. Both rules apply only when project is nile-production, matched against the token audience."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 543,
+        "description": "UserFromToken skips checkUser. Its only non-test caller is thoth/handlers.go:204, a telemetry identity comparison, so it is not an authorization path."
+      },
+      {
+        "file": "fnox.toml",
+        "line": 7,
+        "description": "Repo config names the production project nile-production, which is consistent with the hard-coded string in checkUser."
+      }
+    ],
+    "reason": "For production, source shows a control that blocks the claim. A public signup for Admin/Nile or Admin/NileInputs yields a Firebase user whose claim profileId is the Nile admin profile. checkUser then rejects that account on every /graphql request, whether the email is non-nile.ag (rule 2) or a made-up @nile.ag address using the password provider (rule 1). The 'critical' severity is therefore refuted. What remains is the missing server-side authorization in Signup and IsAdminSignup, which is a defense-in-depth gap and is not independently exploitable. It matters only in non-production Firebase projects (staging/dev), where checkUser is disabled by project != nile-production. That is outside the production boundary and low impact. Two residual facts are outside source: that the production Firebase token audience really equals nile-production, and that the Admin signup claim is never exercised elsewhere. Source and fnox.toml consistently indicate nile-production. I did not trace every possible internal consumer of Firebase claims that bypasses the API auth middleware, but I found no other user-token verification path. Recommended hardening: remove Admin from public signup, or require an authenticated Nile admin caller, and make checkUser independent of the project name."
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "H5-unauth-opname-bypass",
+    "title": "Unauthenticated GraphQL access to any operation by naming it Signup/SignUp/ValidateCurrentToken",
+    "description": "AuthOperation maps the literal Authorization value 'unauthenticated' to a placeholder unauthed user, then only rejects that user when the client-supplied GraphQL operation name is not in a small public allowlist. The operation name is attacker-chosen and independent of the selection set, so any query or mutation can run anonymously by labelling it 'Signup'. No later directive, field middleware or resolver-wrapper blocks the unauthed user, and many resolvers perform no auth.Checks of their own. The unauthed user is propagated to downstream gRPC services, whose server interceptor accepts it without rejection.",
+    "root_cause": "The public-operation allowlist is keyed on op.Operation.Name (client-controlled label) instead of the actual root fields being executed, and unauthenticated state is otherwise enforced only by per-resolver checks that some resolvers omit.",
+    "intended_behavior": "Only the signup/token-validation root fields should be reachable without a valid identity; all other fields should be rejected for the unauthed user regardless of the operation name chosen by the client.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/cmd/server/main.go",
+        "line": 120,
+        "scope": "gqlgen server setup",
+        "description": "Public GraphQL endpoint; the only auth is AroundOperations(AuthOperation()). No AroundFields/AroundRootFields or schema directives are registered."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 379,
+        "scope": "Client.AuthOperation",
+        "description": "Authorization header read from the request, passed to userFromIDToken."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 466,
+        "scope": "Client.userFromIDToken",
+        "description": "The literal token 'unauthenticated' returns UsrUnauthed() (FirebaseUID FIDUnauthed, ProfileID 0) with no credential check; checkPlatform also returns nil for unauthed users (auth.go:495)."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 404,
+        "scope": "Client.AuthOperation",
+        "description": "Unauthed users are rejected only if op.Operation.Name is not in publicOperations (auth.go:422: ValidateCurrentToken, SignUp, Signup). The name is client-chosen, so naming any operation 'Signup' passes; the context is then populated with the unauthed user and next(ctx) runs the real selection set (auth.go:410-417)."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/thoth/handlers.go",
+        "line": 184,
+        "scope": "serverUnaryInterceptor",
+        "description": "Downstream gRPC services accept FIDUnauthed from metadata and install UsrUnauthed without rejecting."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2786,
+        "scope": "queryResolver.LogisticsDoc",
+        "description": "Resolver has no auth.Checks; it queries Ledger.Shipments filtered by the attacker-supplied profileID and date and returns a packing list including product, case and location data and shipping addresses (logisticsdocs.go:54+, shipments.go:2597). Ledger.Shipments has no user check (ledger/internal/ops/ops.go:971)."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 404,
+        "description": "Allowlist check uses op.Operation.Name, the only gate for the unauthed user."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 422,
+        "description": "publicOperations list is a set of operation names, not field names."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 466,
+        "description": "The string 'unauthenticated' is accepted as a token yielding UsrUnauthed."
+      },
+      {
+        "file": "backend/go/api/cmd/server/main.go",
+        "line": 120,
+        "description": "AuthOperation is the only registered auth middleware for the API."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1932,
+        "description": "UpdateClaims has no auth check; r.updateClaims (graph/claims.go:12) looks up users by arbitrary emails and rewrites Firebase claims via AuthClient.UpdateUsers (auth.go:837)."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1130,
+        "description": "UploadPop has no auth check and writes a proof-of-payment URL for an arbitrary quoteID via Trader.Set (downstream authorization not verified)."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2800,
+        "description": "Sibling resolvers such as Shipments (line 2796 area) do call auth.Checks, showing the per-resolver check is the intended control and LogisticsDoc omits it."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "network_routing",
+        "description": "The API GraphQL HTTP endpoint is reachable by the attacker (Cloud Run ingress/IAM not visible in source; the endpoint is the client-facing API)."
+      },
+      {
+        "kind": "authentication_level",
+        "description": "None required: Authorization: unauthenticated plus operationName Signup."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "Anonymous internet client with no account.",
+      "payloads": [
+        "POST /query with header Authorization: unauthenticated and body {\"operationName\":\"Signup\",\"query\":\"query Signup { logisticsDoc(logDocType: SELLER_PACKING_LIST, profileID: 1, date: \\\"2026-01-01T00:00:00Z\\\") { info { title } tables { rows { cells } } } }\"}"
+      ],
+      "instructions": [
+        "Send the request with the literal Authorization value 'unauthenticated' and X-Platform header of any value (checkPlatform returns early for unauthed users).",
+        "Vary profileID and date to enumerate seller shipment data across tenants.",
+        "Optionally issue mutation Signup { updateClaims(userEmails: [\"x@y\"]) } or uploadPOP the same way."
+      ],
+      "observed_result": "Source-level observation, not a runtime result: the unauthed user passes auth.go:404 because the operation name matches the allowlist, and LogisticsDoc and Ledger.Shipments contain no user check on the path."
+    },
+    "remediation": {
+      "strategy": "Enforce the allowlist on the actual root field names (inspect op.Operation.SelectionSet) or use an AroundRootFields/directive that rejects the unauthed user for every field except signUp/validateCurrentToken; also remove the plain 'unauthenticated' sentinel from client-reachable token handling; add auth.Checks to LogisticsDoc, UpdateClaims and UploadPop.",
+      "code_changes": []
+    },
+    "severity": {
+      "likelihood": {
+        "score": "high",
+        "reason": "Trivial request, no credentials, deterministic; exposure depends only on the API endpoint being internet-reachable, which is unobserved but expected for a client-facing GraphQL API."
+      },
+      "impact": {
+        "score": "high",
+        "reason": "Cross-tenant unauthenticated read of shipment/packing-list data including shipping addresses and seller/buyer info, plus unauthenticated invocation of other unchecked mutations (UpdateClaims, UploadPop); full extent across all resolvers not enumerated."
+      },
+      "overall_severity": "high"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "The gate, its name-based allowlist, the absence of other middleware or directives, and a concrete unchecked resolver with real data were all directly read in source; only network reachability is an unobserved deployment fact."
+    }
+  },
+  {
+    "verdict": "needs_validation",
+    "fingerprint": "api-graphql-introspection-cycle-amplification-unauth",
+    "title": "Unauthenticated GraphQL introspection with no depth/complexity limit may allow resource-exhaustion amplification on the shared api service",
+    "description": "The api GraphQL server is built with no query complexity or depth limit. Introspection is always enabled. The auth middleware admits an unauthenticated caller whenever the client-chosen operation name is ValidateCurrentToken, SignUp or Signup. An anonymous client can therefore send a small, deeply nested introspection query that walks the cyclic __Type graph (for example __schema{types{fields{type{fields{type{...}}}}}} or interfaces/possibleTypes), under one of those operation names. Response size and CPU grow roughly exponentially with nesting depth, while the request grows linearly. The http.Server has no read, write or body-size limits. Source confirms the missing controls and the auth bypass by operation name. Whether the amplification is large enough to degrade the service depends on the gqlgen v0.17.90 introspection and validation behaviour, which could not be executed here, and on Cloud Run request timeouts, concurrency, autoscaling and any fronting WAF or limit. These are not visible in source, so this stays needs_validation.",
+    "claimed_root_cause": "newServer registers handler.New without extension.FixedComplexityLimit or a depth validator. It always enables extension.Introspection{}, and AuthOperation lets unauthenticated users through by op.Operation.Name allowlist, which is attacker-controlled. http.ListenAndServe is used with no timeouts or MaxBytesReader.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/cmd/server/main.go",
+        "line": 289,
+        "scope": "main: http.Handle(\"/graphql\", gzipHandler)",
+        "description": "Public /graphql endpoint wrapped by CORS and gzip only. Anonymous POST or GET is accepted."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 373,
+        "scope": "Client.AuthOperation",
+        "description": "Operation middleware. For an unauthenticated user (FIDUnauthed) it blocks only when op.Operation.Name is not in publicOperations (line 422). A client-chosen operation name of Signup or ValidateCurrentToken passes, and the check is on the name, not on the selected fields, so an introspection selection set is admitted."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/cmd/server/main.go",
+        "line": 75,
+        "scope": "newServer",
+        "description": "Server is built with transports, an LRU query cache and APQ. No complexity limit, depth limit or query-size limit extension is registered. I found no ComplexityLimit or FixedComplexityLimit usage anywhere under backend/go."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/cmd/server/main.go",
+        "line": 123,
+        "scope": "newServer: server.Use(extension.Introspection{})",
+        "description": "Introspection is enabled in all environments. The nested cyclic __Type traversal is executed and serialised for an anonymous caller, and the ListenAndServe at line 303 adds no timeouts or body limits."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/api/cmd/server/main.go",
+        "line": 123,
+        "description": "extension.Introspection{} is unconditionally enabled with no environment gate."
+      },
+      {
+        "file": "backend/go/api/cmd/server/main.go",
+        "line": 303,
+        "description": "http.ListenAndServe on the default mux, with no http.Server timeouts or MaxBytesReader."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 404,
+        "description": "Unauthenticated users are rejected only if op.Operation.Name is not in publicOperations."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 422,
+        "description": "publicOperations = ValidateCurrentToken, SignUp, Signup, matched by client-supplied operation name."
+      },
+      {
+        "file": "backend/go/go.mod",
+        "line": 20,
+        "description": "gqlgen v0.17.90. This version is not in the local module cache (only v0.17.73 and v0.17.76), so framework behaviour could not be read."
+      }
+    ],
+    "blockers": [
+      "No runtime execution is allowed, so the actual CPU, memory and response-size amplification of nested introspection on gqlgen v0.17.90 and gqlparser validation is not measured.",
+      "Cloud Run request timeout, max instances, concurrency, CPU limits and any Cloud Armor or WAF or gateway query limits are not in source.",
+      "gqlgen v0.17.90 source is not available locally, so I could not confirm whether it adds an introspection depth bound or default limits."
+    ],
+    "validation_plan": {
+      "local": "In a local dev instance with dummy data, send the Signup-named introspection query at depths 3, 5, 7 and 9. Record response bytes, CPU time and peak RSS per depth to see if growth is exponential. Then check whether adding FixedComplexityLimit or a depth validator bounds it. Run this only against localhost.",
+      "deployment": "The service owner should review the Cloud Run config for the api service (request timeout, concurrency, max instances) and any Cloud Armor or load-balancer policy. They should also check the staging request-latency and memory dashboards for a controlled, owner-run query at moderate depth. Do not probe production."
+    }
+  },
+  {
+    "verdict": "needs_validation",
+    "fingerprint": "auth/hardcoded-shared-robot-token",
+    "title": "Hardcoded shared robot bearer token accepted by the public GraphQL auth middleware yields platform-admin robot identity",
+    "description": "backend/go/auth/auth.go defines the constant robotToken (line 30, key robotToken; value not reproduced here). userFromIDToken (line 467) accepts it with a plain switch match (case at line 468) on the Authorization bearer. It then parses the caller-supplied X-Platform header as an admin id (line 469) and returns DetermineRobotUser(aid) (line 473). That returns a User with PartyTypeAdmin, ProfileID and AdminProfileID set to the chosen platform's admin id, and RoleRobot (UsrRobot, lines 183-192; mapping at 246-257 covers Nile, Freshmark, Inputs and Villa). AuthOperation (line 373) is installed on the public GraphQL server (backend/go/api/cmd/server/main.go:120). It calls userFromIDToken at line 393, and checkPlatform passes because AdminProfileID equals the header value. No environment gate, expiry, IP restriction or per-tenant secret exists in source. The same literal is embedded in backend/functions/firebase/functions/src/pdf.ts:30 and is also usable on AuthHTTP (auth.go:432). Source establishes the acceptance path. It does not establish that the literal is the live production secret, or that the secret reaches anyone outside the trusted engineering boundary, or that the endpoint is internet-reachable. A newer Google service-account OIDC path (robotFromServiceAccount, auth.go:480) exists as a replacement, which suggests the shared literal is a legacy path that may still be live.",
+    "claimed_root_cause": "A long-lived shared secret is committed in source and compared directly in the authentication path. The tenant it applies to is chosen by the caller through X-Platform. The secret cannot be rotated without a code change and redeploy, and any copy of the source gives cross-tenant admin-equivalent access if the value is live.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/cmd/server/main.go",
+        "line": 120,
+        "scope": "gqlgen server setup",
+        "description": "AuthOperation middleware is attached to the public /graphql server, so the Authorization and X-Platform headers are caller-controlled."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 393,
+        "scope": "(*Client).AuthOperation",
+        "description": "Bearer token and X-Platform header are read (lines 379-392) and passed to userFromIDToken."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 468,
+        "scope": "(*Client).userFromIDToken",
+        "description": "A token equal to the hardcoded robotToken matches this case. X-Platform is parsed as an int64 admin id (line 469)."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/auth/auth.go",
+        "line": 473,
+        "scope": "(*Client).userFromIDToken / DetermineRobotUser",
+        "description": "Returns an admin-party robot User for the caller-chosen tenant. AuthOperation then places it in context (line 410), and the checkPlatform, rejected-status and unauthed-operation checks all pass."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 30,
+        "description": "Hardcoded robotToken constant, plus potatoesSaToken at line 31 (a separate hardcoded secret with the same pattern). Exposed via GetRobotToken at line 34."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 183,
+        "description": "UsrRobot is PartyTypeAdmin with ProfileID and AdminProfileID set to the platform admin id and RoleRobot. DetermineRobotUser at line 246 selects the robot by caller-supplied admin id."
+      },
+      {
+        "file": "backend/functions/firebase/functions/src/pdf.ts",
+        "line": 30,
+        "description": "The same literal is embedded in the pdf Cloud Function."
+      }
+    ],
+    "blockers": [
+      "Cannot tell from source whether the committed literal is the live production secret, or already rotated, or a dev-only value.",
+      "Cannot tell from source who has read access to the repository or its copies, which determines whether 'source copy' is a lower-trust principal.",
+      "Cannot tell from source whether the /graphql ingress is reachable by unauthenticated internet callers, or only via an IAP, VPN or private ingress.",
+      "The effective permissions of the Robot admin user across resolvers and access checks (e.g. RoleRobot handling) were not fully enumerated in this pass."
+    ],
+    "validation_plan": {
+      "local": "In a dev environment, send a GraphQL request with Authorization set to the robot token and X-Platform set to a dev admin id. Confirm the resolver context user is the robot admin, and enumerate which resolvers or directives authorize PartyTypeAdmin or RoleRobot. Run only against a local or dev instance.",
+      "deployment": "Owner-observed check, not a live probe: confirm in Secret Manager or deploy configuration whether the committed value matches the production token. Review repository and fork access lists and any past leakage. Review Cloud Run ingress and IAM for the GraphQL service. Review auth logs for FIDRobot users arriving from non-service IPs. Rotate the secret and migrate callers to the OIDC service-account path (robot_oidc.go) as a precaution."
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "auth/potatoessa-scope-first-field-only",
+    "title": "PotatoesSA export-only token user can run any Admin-party-type query because the scope gate only inspects the first top-level field that has an argument",
+    "description": "The hardcoded PotatoesSA token resolves to a user with Admin party type and the Nile admin profile id (no roles). The only thing restricting it to the exportData query is isExportDataQuery(), which is called from AuthOperation. That function loops over the operation's top-level selections, skips any field with no arguments, and returns at the first field that has an argument, using only that field's authorisedExternalQueries lookup. It never looks at the remaining selections. A single query document such as `query { exportData(type: PotatoesSA) seller(sellerUUID: 1, search: \"\") { ... } }` passes the gate. A document that starts with argument-less top-level fields also passes, because those fields are skipped. gqlgen then executes every top-level field with the PotatoesSA user in context. Resolvers guarded only by auth.PartyTypes(Admin) admit that user. Examples are Seller (any sellerUUID), Buyer (any filter.ID), AccountTransactions and OrderStatementEntries. These are read-only query fields, because the gate pins the operation type to 'query'. The scope-limiting control is therefore fully defeated for query operations. Resolvers that also require role permissions through access.Has() are not reachable, because the user has no roles.",
+    "root_cause": "isExportDataQuery() (auth.go:323-332) returns on the first top-level field that has an argument and ignores all other selections. Argument-less fields are skipped, and non-Field selections such as fragment spreads would panic on the type assertion instead of being checked. The PotatoesSA scope restriction is also implemented only as this operation-shape check, not as an allow-list enforced per resolver or field. The user is given the full Admin party type, which many resolvers accept as sufficient.",
+    "intended_behavior": "The PotatoesSA user may execute only the exportData(type: PotatoesSA) query and nothing else. Every top-level selection, including fragments and aliases, must be exportData with the PotatoesSA argument, and any other field must be rejected.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/auth/auth.go",
+        "line": 373,
+        "scope": "Client.AuthOperation (GraphQL operation middleware, registered at api/cmd/server/main.go:120)",
+        "description": "Every GraphQL operation passes through this middleware. The caller controls the Authorization header and the query document."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 474,
+        "scope": "Client.userFromIDToken",
+        "description": "A bearer value equal to the hardcoded potatoesSaToken constant (auth.go:31) returns UsrPotatoesSA(): PartyTypeAdmin, ProfileID and AdminProfileID = AdminIDNile, no Roles (auth.go:198-206). X-Platform must equal the Nile admin id for checkPlatform to pass."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 407,
+        "scope": "AuthOperation, PotatoesSA gate",
+        "description": "The only restriction is `user.IsPotatoesSA() && !isExportDataQuery(op.Operation)`. If isExportDataQuery returns true, the user is placed in the context and next(ctx) runs the whole operation."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 323,
+        "scope": "isExportDataQuery",
+        "description": "The loop iterates the top-level selections, skips fields with no arguments, and returns on the first field with an argument via authorisedExternalQueries[op][field][arg]. Later selections are never examined, so exportData(type: PotatoesSA) first (or after argument-less fields) makes the check true for the whole document."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 3262,
+        "scope": "queryResolver.Seller (also Buyer :3275, AccountTransactions :2567, OrderStatementEntries :3236)",
+        "description": "These resolvers check only auth.PartyTypes(Admin) or CheckIfPartyTypeAllowed(Admin), which the PotatoesSA user satisfies. They return tenant data for caller-chosen seller or buyer ids and ledger data, far beyond the signed export URL."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 323,
+        "description": "isExportDataQuery returns inside the first loop iteration that has an argument and never checks other selections. It also asserts every selection to *ast.Field."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 407,
+        "description": "The single enforcement point for the PotatoesSA restriction. Other than this, no per-resolver deny exists for the PotatoesSA user."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 198,
+        "description": "UsrPotatoesSA sets PartyTypeAdmin and the Nile admin id and leaves Roles empty. The comment states it should be limited to certain areas, i.e. the export query."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 31,
+        "description": "The PotatoesSA token is a constant in source (key potatoesSaToken); its value is not reproduced here."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 4270,
+        "description": "ExportData itself is gated only by PartyTypes(Admin), the same check that admits the PotatoesSA user elsewhere."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 3263,
+        "description": "Seller admits any Admin party type for an arbitrary sellerUUID (cross-tenant read). Buyer (3277) and AccountTransactions (2569) are similar."
+      },
+      {
+        "file": "backend/go/api/cmd/server/main.go",
+        "line": 120,
+        "description": "AuthOperation is the only auth middleware on the GraphQL server. No gqlgen directive or other layer blocks the PotatoesSA user on other fields."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 448,
+        "description": "The plain HTTP path (AuthHTTP) explicitly rejects the PotatoesSA user, which shows the intent that this user be kept out of other surfaces. The GraphQL path has only the bypassable check."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "The caller must present the PotatoesSA token. That is the legitimate partner holder, or anyone who has read it from the source repository or build artifacts."
+      },
+      {
+        "kind": "system_configuration",
+        "description": "The request must reach the api GraphQL endpoint with X-Platform set to the Nile admin id so that checkPlatform passes. Whether the endpoint is publicly reachable is not determined from source."
+      },
+      {
+        "kind": "data_state",
+        "description": "Only query operations are reachable, because the gate map is keyed to 'query'. Resolvers that also require role-based access.Has permissions are not reachable, because the user has no roles."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "A holder of the PotatoesSA token, who should only be able to fetch the export URL, sends one GraphQL query that begins with the allowed exportData selection and appends Admin-readable fields for other tenants.",
+      "payloads": [
+        "query { exportData(type: PotatoesSA) seller(sellerUUID: 1, search: \"\") { __typename } }"
+      ],
+      "instructions": [
+        "Send POST to the api GraphQL endpoint with Authorization set to the PotatoesSA token and X-Platform set to the Nile admin id.",
+        "Use a document whose first argument-bearing top-level field is exportData(type: PotatoesSA), followed by other query fields such as seller, buyer, accountTransactions or orderStatementEntries. Selections with no arguments listed before exportData are also skipped by the gate.",
+        "Expected: the gate at auth.go:407 passes and the additional fields execute under the Admin-party-type PotatoesSA user."
+      ],
+      "observed_result": "Source-level observation only, not a runtime result. The loop in isExportDataQuery returns at the first selection with an argument and checks nothing else. The code shows no other control on the path, and the target resolvers admit Admin party type. This was derived by reading the code and nothing was executed."
+    },
+    "remediation": {
+      "strategy": "Replace the first-field heuristic with a strict check. Require every top-level selection (resolving fragments and rejecting non-Field selections safely) to be exportData with the PotatoesSA argument, and reject if any other selection exists. Better still, remove the Admin party type from this user, or add an explicit deny for IsPotatoesSA in resolvers or a gqlgen directive. Also move the token out of source and rotate it.",
+      "code_changes": [
+        {
+          "file_name": "backend/go/auth/auth.go",
+          "fixed_code": "func isExportDataQuery(op *ast.OperationDefinition) bool {\n\tif len(op.SelectionSet) == 0 {\n\t\treturn false\n\t}\n\tfor _, set := range op.SelectionSet {\n\t\tf, ok := set.(*ast.Field)\n\t\tif !ok || len(f.Arguments) != 1 {\n\t\t\treturn false\n\t\t}\n\t\tif !authorisedExternalQueries[string(op.Operation)][f.Name][f.Arguments[0].Value.String()] {\n\t\t\treturn false\n\t\t}\n\t}\n\treturn true\n}"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "medium",
+        "reason": "The path is trivially exploitable once the token is held, but the token is a partner credential that is also hardcoded in source. Whether the GraphQL endpoint is reachable by the token holder is a deployment fact not seen in source."
+      },
+      "impact": {
+        "score": "high",
+        "reason": "It turns an export-only credential into read access to every query resolver gated only by Admin party type, including cross-tenant seller and buyer data and ledger and accounting data. Mutations and role-gated resolvers are not reachable."
+      },
+      "overall_severity": "medium"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "The control flow of the gate and the resolver checks were read directly. The remaining uncertainty is deployment reach and which Admin-only resolvers return meaningful data."
+    }
+  },
+  {
+    "verdict": "needs_validation",
+    "fingerprint": "backend/functions/firebase/functions/functions-env-committed-api-keys",
+    "title": "Firebase functions env files and runtimeconfig hold NILE_API_KEY values in the source tree",
+    "description": "The files .env.nile-production, .env.nile-staging and .runtimeconfig.json in backend/functions/firebase/functions each hold a NILE-API-KEY credential (key names NILE_API_KEY and nile_api.key; values not reproduced here). The only ignore file on the path, functions/.gitignore, lists only 'lib', and the repo root .gitignore has no .env* or .runtimeconfig.json rule. The Sapling treestate (.sl/treestate) records all three file names, so they are very likely tracked. The only in-repo consumer, priceMailer.ts, is commented out of index.ts. No code under backend/ validates the NILE-API-KEY header or serves the Jobs/sendPriceMailer endpoint it calls, so what the key authenticates to, and whether it is live, cannot be established from this scope.",
+    "claimed_root_cause": "Environment secrets for a server-to-server call (NILE-API-KEY header to the API Jobs/sendPriceMailer endpoint) are stored as plaintext files in the repository working tree and are not excluded by any ignore rule, rather than being held in Secret Manager or a git-ignored local file.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/functions/firebase/functions/.env.nile-production",
+        "line": 4,
+        "scope": "dotenv file for the nile-production Firebase functions deployment",
+        "description": "Plaintext NILE_API_KEY next to NILE_API_URL pointing at the production API host. Readable by anyone with repository access."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/functions/firebase/functions/src/config.ts",
+        "line": 3,
+        "scope": "config module",
+        "description": "NILE_API_KEY is read from process.env, which Firebase populates from the .env.<project> file at deploy time."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/functions/firebase/functions/src/priceMailer.ts",
+        "line": 12,
+        "scope": "sendPrices()",
+        "description": "The key is sent as the NILE-API-KEY header on PUT Jobs/sendPriceMailer. All exports are commented out in src/index.ts lines 8 and 15-17, so this is currently not deployed from this source."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/functions/firebase/functions/.env.nile-staging",
+        "line": 3,
+        "description": "Staging NILE_API_KEY in plaintext."
+      },
+      {
+        "file": "backend/functions/firebase/functions/.runtimeconfig.json",
+        "line": 3,
+        "description": "Legacy runtime config nile_api.key credentials in plaintext; lines 3-4 hold values."
+      },
+      {
+        "file": "backend/functions/firebase/functions/.gitignore",
+        "line": 1,
+        "description": "Contains only 'lib'; none of the three secret files is ignored."
+      },
+      {
+        "file": "backend/functions/firebase/functions/src/index.ts",
+        "line": 8,
+        "description": "priceMailer import and exports are commented out (lines 8 and 15-17), so the consumer is disabled."
+      },
+      {
+        "file": ".gitignore",
+        "line": 1,
+        "description": "Root .gitignore (core/.gitignore) ignores .firebaserc, .firebaseConfig.json and .firebase, but has no .env* or .runtimeconfig.json pattern."
+      }
+    ],
+    "blockers": [
+      "Sapling tracking is only inferred: .sl/treestate lists the three filenames, but whether they are committed in history (or only present in the working copy) was not confirmed without running sl.",
+      "The receiving API (Jobs/sendPriceMailer, NILE-API-KEY validation) is not in backend/ scope, so the key's privileges and whether it is currently valid or rotated cannot be determined from source.",
+      "The only consumer function is disabled, which lowers the likelihood that the key is still active."
+    ],
+    "validation_plan": {
+      "local": "Repository owner runs 'sl files' or 'sl log -f' on the three paths to confirm they are tracked and in how many commits, and checks who can read the repo.",
+      "deployment": "Owner checks whether the production and staging NILE_API_KEY values are still accepted by the API (via the key store or audit logs, not a live probe). If active, rotate them, move them to Secret Manager or a git-ignored file, add .env.* and .runtimeconfig.json to .gitignore, and purge them from history."
+    }
+  },
+  {
+    "verdict": "needs_validation",
+    "fingerprint": "backend/functions/firebase/functions/src/pdf.ts-generatePdf-url-ssrf-token-exfil",
+    "title": "generatePdf Cloud Function appends the static robot token to a caller-chosen URL and loads it in headless Chromium",
+    "description": "The generatePdf onRequest function (europe-west1) has no authentication code and uses cors({origin:true}). It takes ?url= from the query string with no scheme or host validation. It appends the hardcoded robotToken=<static value> (pdf.ts:27-30) and loads the result with Puppeteer page.goto (pdf.ts:49). An attacker who can reach the function can supply a URL on a host they control and receive the token in the request line. The same string is accepted by the Go API as the shared robot credential (auth.go:30 defines it and auth.go:468 matches it in userFromIDToken, returning DetermineRobotUser(admin id from the platform header)), so a leaked token yields robot/admin-level API access. The browser also fetches arbitrary URLs from inside the Cloud Functions network (SSRF, including the metadata server), and the rendered result is returned as a PDF to the caller. Source review found no URL allowlist, no caller check and no invoker restriction in pdf.ts, index.ts or firebase.json. The remaining unknown is deployment: whether the deployed function is publicly invokable. The firebase-functions v2 onRequest default is a public invoker, and the web client needs browser access, which points to public. That cannot be proven from source. The repo's own docs/shipit-core-connector-plan.md:371-381 describes the same issue as open. Secondary: the name parameter is interpolated unescaped into footerTemplate HTML (pdf.ts:95), giving HTML injection into the PDF footer, which is limited and low impact. Content-Disposition (pdf.ts:101-104) uses name unquoted, but Node rejects CR/LF in header values, so there is no header splitting; the effect is limited to filename and parameter manipulation.",
+    "claimed_root_cause": "An unauthenticated, CORS-open HTTP function concatenates a hardcoded long-lived bearer secret onto an unvalidated user-supplied URL and navigates a headless browser to it, with no host allowlist or caller authentication.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/functions/firebase/functions/src/pdf.ts",
+        "line": 10,
+        "scope": "generatePdf = onRequest({memory,timeoutSeconds,region}, ...) with cors({origin:true}) at line 5; no invoker option and no auth check",
+        "description": "Public HTTP entrypoint; any caller who can reach the function can invoke it."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/functions/firebase/functions/src/pdf.ts",
+        "line": 19,
+        "scope": "generatePdf handler",
+        "description": "url = request.query.url, attacker-controlled; the only validation is a non-empty check (lines 22-25)."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/functions/firebase/functions/src/pdf.ts",
+        "line": 27,
+        "scope": "generatePdf handler",
+        "description": "Appends the hardcoded robotToken=<static token> as a query parameter to the attacker-supplied URL (lines 27-30)."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/functions/firebase/functions/src/pdf.ts",
+        "line": 49,
+        "scope": "generatePdf handler, page.goto(url) in Puppeteer launched with --no-sandbox (line 34)",
+        "description": "Headless Chromium requests the attacker-chosen URL including the token, sending it to the attacker host (or to internal addresses). The page is rendered to PDF (line 81) and returned to the caller."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/auth/auth.go",
+        "line": 468,
+        "scope": "Client.userFromIDToken",
+        "description": "The leaked value matches robotToken (auth.go:30) and maps to DetermineRobotUser(admin id from the platform header), so the exfiltrated token is a usable credential against the API."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/functions/firebase/functions/src/pdf.ts",
+        "line": 19,
+        "description": "url taken straight from the query string; only an emptiness check (22-25)."
+      },
+      {
+        "file": "backend/functions/firebase/functions/src/pdf.ts",
+        "line": 30,
+        "description": "Hardcoded robot token literal appended to the URL (key name robotToken; value not reproduced here)."
+      },
+      {
+        "file": "backend/functions/firebase/functions/src/pdf.ts",
+        "line": 49,
+        "description": "page.goto(url) on the unvalidated URL."
+      },
+      {
+        "file": "backend/functions/firebase/functions/src/pdf.ts",
+        "line": 95,
+        "description": "name interpolated unescaped into footerTemplate HTML."
+      },
+      {
+        "file": "backend/functions/firebase/functions/src/index.ts",
+        "line": 12,
+        "description": "generatePdf exported with no invoker/auth wrapper; setGlobalOptions sets only region."
+      },
+      {
+        "file": "backend/functions/firebase/firebase.json",
+        "line": 1,
+        "description": "No invoker, ingress or IAM configuration for the function."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 30,
+        "description": "Same static string defined as the Go API robotToken constant; accepted at line 468."
+      },
+      {
+        "file": "docs/shipit-core-connector-plan.md",
+        "line": 371,
+        "description": "Internal doc states the function is unauthenticated and leaks the token to caller-supplied URLs, and that rotation is still pending."
+      }
+    ],
+    "blockers": [
+      "Whether the deployed Cloud Run service behind generatePdf grants roles/run.invoker to allUsers (public) is not visible in source. firebase-functions v2 onRequest defaults to a public invoker, but IAM could have been changed out of band.",
+      "Whether the deployed robotToken value is still live (not rotated) and whether egress from the function is unrestricted is not visible in source.",
+      "Whether the Go API at the deployed ingress honours the platform header for robot callers so the token yields real admin access, which depends on deployment configuration."
+    ],
+    "validation_plan": {
+      "deployment": "Owner-observed checks only, no live probe: (1) in GCP console or via 'gcloud run services get-iam-policy generatepdf --region europe-west1', check whether allUsers or allAuthenticatedUsers holds roles/run.invoker, and review ingress settings; (2) confirm in Secret Manager or the deployment config whether the robot token has been rotated since the commit; (3) review Cloud Run logs for generatePdf requests whose url host is not a Nile market origin.",
+      "local": "In the Firebase emulator (port 5001 per firebase.json), call generatePdf with url set to a local listener the owner controls and confirm the listener receives robotToken in its query string; confirm that name containing HTML renders in the footer and that CR/LF in name causes a header error."
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "gerrit-webhook-unauthenticated-event-forgery",
+    "title": "Gerrit webhook Cloud Function is public and accepts forged events without any authentication, enabling attacker-chosen staging deploys",
+    "description": "The gerrit-webhook Cloud Function is granted roles/run.invoker to allUsers, justified by a comment claiming Gerrit verifies calls via HMAC. The handler never verifies any signature, secret, OIDC token or source IP. It dispatches purely on the body-supplied 'type'. A forged change-merged event with branch master and an arbitrary newRev makes the function record that SHA as staging's targetSha and enqueue a staging deploy of it. The builder agent then fetches and hard-resets to that ref and deploys it to staging, bypassing Gerrit review/submit. Forged patchset-created, nightly-* and reconcile-verifies events can also trigger builder work.",
+    "root_cause": "Authentication was delegated to a non-existent application-layer HMAC check: the Cloud Run service is opened to allUsers and Handle() trusts the unauthenticated JSON body, including type, Change.Branch and NewRev.",
+    "intended_behavior": "Only Gerrit (webhook with shared-secret HMAC or authenticated invoker) and Cloud Scheduler (OIDC) should be able to invoke the function; event content should be accepted only from an authenticated sender.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/gerrit/functions/webhook/webhook.go",
+        "line": 62,
+        "scope": "Handle",
+        "description": "Public HTTP handler reads the raw body and unmarshals it with no signature, secret, token or IP check, then switches on attacker-controlled event.Type."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/gerrit/functions/webhook/webhook.go",
+        "line": 283,
+        "scope": "handleChangeMerged",
+        "description": "Trusts event.Change.Branch (only must equal master) and event.NewRev as the merged commit; no verification against Gerrit that the SHA was merged."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/gerrit/task/deploys.go",
+        "line": 76,
+        "scope": "RecordMerge",
+        "description": "Writes attacker-supplied SHA as staging targetSha and into pending changelog in Firestore, which also marks legitimate pending deploys as superseded."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/gerrit/task/deploy.go",
+        "line": 107,
+        "scope": "CreateDeploy",
+        "description": "Cancels queued auto-deploys and enqueues a staging deploy Task with Ref set to the forged SHA; the agent (agent/main.go:669 git.Checkout, agent/actions/git/checkout.go:60 fetch and :95 reset --hard FETCH_HEAD) fetches that ref with the bot credential and deploys it to staging."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/gerrit/terraform/functions.tf",
+        "line": 64,
+        "description": "google_cloud_run_v2_service_iam_member gerrit_webhook_invoker grants roles/run.invoker to allUsers (line 69); preceding comment at line 63 claims HMAC verification that does not exist in code."
+      },
+      {
+        "file": "backend/go/gerrit/functions/webhook/webhook.go",
+        "line": 62,
+        "description": "Handle has no authentication; grep of the gerrit module finds no hmac/signature/X-Gerrit/oidc verification anywhere in the function path."
+      },
+      {
+        "file": "backend/go/gerrit/terraform/scheduler.tf",
+        "line": 18,
+        "description": "Scheduler jobs call the function URL with plain POST and no oidc_token, confirming the function is intended to be callable unauthenticated."
+      },
+      {
+        "file": "backend/go/gerrit/functions/webhook/webhook.go",
+        "line": 353,
+        "description": "RecordMerge and CreateDeploy (line 358) are called with event.NewRev taken directly from the request body."
+      },
+      {
+        "file": "backend/go/gerrit/functions/webhook/webhook.go",
+        "line": 256,
+        "description": "tryAutoSubmit relies on Gerrit ChangeSubmittable/ChangeMergeable checks, so forged comment-added cannot force-submit unapproved changes; impact there is limited to triggering legitimate submits early."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "None required to call the function; attacker needs only the function URL (not secret, deterministic cloudfunctions/run.app URL)."
+      },
+      {
+        "kind": "environmental_dependency",
+        "description": "For arbitrary code to reach staging the attacker needs a SHA fetchable from code.nile.ag by the bot (e.g. a pushed unreviewed refs/changes patchset, which requires a Gerrit account, or any existing unmerged/merged SHA). Without a Gerrit account the attacker can only replay existing commits, supersede/disrupt legitimate staging deploys, and spam builder tasks."
+      },
+      {
+        "kind": "system_configuration",
+        "description": "Only staging is auto-targeted by this path; production deploys are manually requested and not reachable via this event. Cloud Run ingress is not restricted in the Terraform (no ingress setting found)."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "Anonymous internet caller who knows the webhook function URL.",
+      "payloads": [
+        "POST <function-url> {\"type\":\"change-merged\",\"change\":{\"number\":<n>,\"branch\":\"master\",\"subject\":\"x\"},\"patchSet\":{\"number\":1},\"newRev\":\"<fetchable-commit-sha>\"}"
+      ],
+      "instructions": [
+        "Send the POST with Content-Type application/json to the public function URL.",
+        "Handler records the SHA as staging targetSha and enqueues a staging deploy; the builder fetches and deploys it."
+      ],
+      "observed_result": "Source-level observation, not a runtime result: no check exists on any path between the allUsers invoker binding and the deploy enqueue, so the forged event is accepted and acted upon."
+    },
+    "remediation": {
+      "strategy": "Remove allUsers invoker. Require authentication: configure Gerrit webhook with a shared secret and verify the HMAC (constant-time) over the raw body in Handle before parsing, and give Cloud Scheduler an oidc_token with an invoker-only service account. Additionally, in handleChangeMerged confirm via the Gerrit API that NewRev is the merged tip of master for the given change before recording/deploying.",
+      "code_changes": []
+    },
+    "severity": {
+      "likelihood": {
+        "score": "medium",
+        "reason": "Fully unauthenticated and trivial to send, but requires knowing the function URL and, for attacker code, a Gerrit account to produce a fetchable unreviewed SHA; Gerrit fetch-by-SHA policy is not visible in source."
+      },
+      "impact": {
+        "score": "medium",
+        "reason": "Bypasses review to deploy an attacker-chosen commit to staging and disrupts the deploy pipeline; production not directly reachable, so blast radius limited to staging and builder resources."
+      },
+      "overall_severity": "medium"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "Absence of auth is directly visible in the handler, terraform IAM binding and scheduler config; the only uncertainty is deployment facts limiting which SHAs the agent can fetch."
+    }
+  },
+  {
+    "verdict": "needs_validation",
+    "fingerprint": "harvester-potatoessa-unzip-path-traversal",
+    "title": "Zip-slip in harvester Potatoes SA archive extraction (no containment of entry names)",
+    "description": "The harvester downloads a zip from a URL returned by the third-party api.potatoes.co.za endpoint and extracts every entry using the attacker-controlled entry name in the destination path with no containment check. The path arithmetic does not neutralise traversal. The entry name is prefixed with 'YYMMDD_', which becomes one extra path segment. path.Join then lexically cleans 'tmp/260101_/../../x' to '<parent of tmp>/x', so the prefix consumes one '..' and a second '..' escapes os.TempDir(). Entries with three or more '..' go further up. Absolute entry names stay under the temp dir because of the prefix. Go's archive/zip accepts '..' names by default; no GODEBUG zipinsecurepath setting was found in the repo. The result is an arbitrary file create/truncate and write as the harvester process user, with contents controlled by the zip provider. The directory branch (os.MkdirAll on a relative, prefixed name) is a lesser variant. The source path is fully established. Exploitability depends on the provider being malicious or compromised, on the process user and filesystem permissions in the harvester container, and on what is writable and later consumed. These are deployment facts, so the verdict is needs_validation and not confirmed.",
+    "claimed_root_cause": "unzipFile builds the output path with path.Join(os.TempDir(), date+'_'+f.Name) and calls os.Create and io.Copy without checking that the cleaned path remains inside the intended extraction directory. The date prefix does not prevent escape, because a single prefix segment is cancelled by one '..' during path.Clean.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/harvester/internal/ops/potatoesSA/methods.go",
+        "line": 63,
+        "scope": "getZipFileURL",
+        "description": "The JSON body from the third-party https://api.potatoes.co.za/external/nile/<date> endpoint (authenticated with a Bearer token) is decoded, and ex.URL is returned unvalidated. This is the lower-trust external data feed."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/harvester/internal/ops/potatoesSA/methods.go",
+        "line": 82,
+        "scope": "downloadZipFile",
+        "description": "The provider-supplied URL is fetched with no host or scheme check. The body is written to os.TempDir()/<date>_potatoes_sa.zip (lines 88-94), so the provider controls the full zip contents."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/harvester/internal/ops/potatoesSA/methods.go",
+        "line": 105,
+        "scope": "unzipFile",
+        "description": "zip.OpenReader opens the archive; f.Name for each entry is attacker-controlled. Go's default behaviour does not reject '..' names (the zipinsecurepath GODEBUG setting is not set in the repo)."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/harvester/internal/ops/potatoesSA/methods.go",
+        "line": 125,
+        "scope": "unzipFile",
+        "description": "fp = path.Join(os.TempDir(), 'YYMMDD_' + f.Name). The name '../../x' cleans to '<parent of tmp>/x', escaping the temp dir. There is no prefix or containment check."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/harvester/internal/ops/potatoesSA/methods.go",
+        "line": 126,
+        "scope": "unzipFile",
+        "description": "os.Create(fp) creates or truncates the file at the escaped path, and io.Copy (line 132) writes the entry contents into it. The sink is an arbitrary file write as the harvester user."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/harvester/internal/ops/potatoesSA/types.go",
+        "line": 10,
+        "description": "fileDelimiter is '_' and dateFormat is '060102' (line 8). The prefix is therefore the single segment 'YYMMDD_', which one '..' cancels, so it does not block traversal."
+      },
+      {
+        "file": "backend/go/harvester/internal/ops/potatoesSA/methods.go",
+        "line": 33,
+        "description": "newFileName concatenates the date, the delimiter and the raw entry name with no sanitisation."
+      },
+      {
+        "file": "backend/go/harvester/internal/ops/potatoesSA/methods.go",
+        "line": 118,
+        "description": "The directory branch calls os.MkdirAll on the prefixed relative name, with no containment and no temp-dir anchoring."
+      },
+      {
+        "file": "backend/go/harvester/internal/ops/potatoesSA/potatoes_sa.go",
+        "line": 44,
+        "description": "unzipFile is called directly on the downloaded archive, with no intermediate validation of entry names."
+      },
+      {
+        "file": "backend/go/go.mod",
+        "line": 3,
+        "description": "The toolchain is Go 1.27. The repo has no zipinsecurepath GODEBUG setting, so '..' entry names are accepted by archive/zip."
+      },
+      {
+        "file": "backend/go/harvester/Dockerfile",
+        "line": 21,
+        "description": "The runtime image is docker.io/chromedp/headless-shell:stable. No USER directive was seen in the grep, so the container user and filesystem writability are unresolved from source."
+      }
+    ],
+    "blockers": [
+      "The provider (api.potatoes.co.za) is a contracted partner feed. Whether it is a realistic lower-trust principal, or could be compromised or tampered with in transit, is a threat-model fact not in source.",
+      "The harvester container runtime user, read-only root filesystem setting and writable mounts are not in source (the Dockerfile has no USER directive). These determine what an escaped write can overwrite and what impact follows.",
+      "The runtime Go behaviour (GODEBUG zipinsecurepath) in the deployed binary was not observed, and no code could be run in this review."
+    ],
+    "validation_plan": {
+      "local": "In a throwaway Go test or sandbox with a scratch directory and no network, build a zip containing an entry named '../../probe.txt' and call unzipFile on it with TMPDIR set to a nested scratch subdirectory. Confirm whether the file appears outside that TMPDIR. Also confirm that zip.OpenReader does not return ErrInsecurePath under the repo's Go 1.27 and GODEBUG defaults.",
+      "deployment": "Owner to inspect the harvester Cloud Run or container configuration for the runtime UID, read-only root filesystem and writable mounts (inspect only, no live probing). Also confirm the contractual and TLS trust relationship with the Potatoes SA API and whether the endpoint or token has ever been exposed. If the container runs non-root with a read-only filesystem, downgrade to low or informational. Regardless, fix by rejecting entries whose cleaned path is not inside a dedicated extraction directory, using filepath.IsLocal or filepath.Rel, and by extracting into os.MkdirTemp instead of the shared temp dir."
+    }
+  },
+  {
+    "fingerprint": "nilocloud/gerrit-checks-unauthenticated",
+    "verdict": "needs_validation",
+    "title": "nilocloud Gerrit Checks endpoints (/v1/gerrit/checks, /checks/log, /checks/run) have no authentication",
+    "description": "Source-level: the three Gerrit Checks routes are wrapped only by gerritCorsMiddleware, which just sets CORS headers (and CORS is not an access control for non-browser callers). Every other sensitive route in the same mux uses authMiddleware (robot token). The nilocloud Cloud Run service is deployed with --allow-unauthenticated. An unauthenticated caller can therefore (a) POST /v1/gerrit/checks/run?change=N&patchset=M to enqueue a verify Cloud Task, which first deletes queued verify tasks whose names start with change-N-ps-, marks pending runs for that change stale in Firestore, then enqueues a new task and rewrites GCS state with a bumped attempt number; (b) GET the per-patchset checks state JSON; (c) GET check logs by externalId. Impact is bounded by source: the ref is always built server-side by RefForChange as refs/changes/NN/N/M from validated positive ints, the task is the same verify that webhook.go:169 and reconcile.go:121 already trigger for every uploaded patchset, and ValidExternalID restricts the log id to the anchored regex ^\\d+-\\d+-\\d+-(known check name)$, so there is no path traversal in LogPath. The verify task runs checks (codegen, lint, test) on whatever the Gerrit change contains, but anyone able to upload a change already gets that automatically, so forged verifies do not create new code-execution reach for an outsider. Real effects are limited to unauthenticated CI cost and queue abuse, cancel-and-replace of legitimate queued verifies and attempt counter churn (integrity and availability of CI status), and disclosure of CI state and log content. Whether this is a meaningful boundary violation depends on facts not in source: network exposure of the service (Cloud Run ingress, any fronting proxy or IAP), whether the checks bucket logs contain sensitive output, and whether the Gerrit instance itself is internet reachable.",
+    "claimed_root_cause": "Gerrit checks routes were registered without authMiddleware or any other identity or authorization check, and rely on CORS (Allow-Origin https://code.nile.ag) as if it were access control, on a service deployed with --allow-unauthenticated.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/nilocloud/internal/handlers.go",
+        "line": 26,
+        "scope": "Resolver.ServeHTTP",
+        "description": "Routes /v1/gerrit/checks, /checks/log, /checks/run (lines 26-28) are registered with gerritCorsMiddleware only; no authMiddleware, unlike the webhook, events and subscription routes above them."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/middleware.go",
+        "line": 24,
+        "scope": "gerritCorsMiddleware",
+        "description": "Only sets Access-Control-* headers and short-circuits OPTIONS; performs no authentication or origin enforcement on the actual request."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/gerrit.go",
+        "line": 78,
+        "scope": "Resolver.gerritChecksRunHandler",
+        "description": "Requires POST and positive integer change and patchset query params (lines 85-103), then calls task.CreateVerify at line 115 without any caller identity check."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/gerrit/task/checks.go",
+        "line": 64,
+        "scope": "CreateVerify",
+        "description": "deleteQueuedTasks removes queued verify tasks for the change (line 64), a new Cloud Task is enqueued, queued runs are superseded in Firestore (line 83), and initial SCHEDULED state is written to GCS (line 93). Ref is built by RefForChange from integers only."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/nilocloud/internal/gerrit.go",
+        "line": 151,
+        "scope": "Resolver.gerritChecksLogHandler",
+        "description": "Reads and returns GCS log object for an id that passes the anchored ValidExternalID regex (line 137); the checks state handler similarly reads state at line 48. Both return data to any caller."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/nilocloud/internal/handlers.go",
+        "line": 10,
+        "description": "Contrast: sentry/grafana webhooks and subscriptions are wrapped in authMiddleware; the Gerrit checks routes at lines 26-28 are not."
+      },
+      {
+        "file": "backend/go/nilocloud/cloudbuild.yaml",
+        "line": 45,
+        "description": "nilocloud is deployed to Cloud Run with --allow-unauthenticated (deployment config as written; live IAM and ingress not verified)."
+      },
+      {
+        "file": "backend/go/gerrit/checks/checks.go",
+        "line": 77,
+        "description": "externalIDRe is anchored and limited to digits plus a known check-name alternation, so log reads cannot traverse paths."
+      },
+      {
+        "file": "backend/go/gerrit/task/task.go",
+        "line": 270,
+        "description": "RefForChange builds the ref from integers only, so an attacker cannot select an arbitrary ref or repo."
+      },
+      {
+        "file": "backend/go/gerrit/functions/webhook/webhook.go",
+        "line": 169,
+        "description": "The same CreateVerify is invoked automatically for every uploaded patchset, so the forged trigger adds no new code-execution capability for outsiders."
+      }
+    ],
+    "blockers": [
+      "Cloud Run ingress and IAM for nilocloud (and any fronting proxy or IAP) are not visible in source; --allow-unauthenticated in cloudbuild.yaml may be overridden or the service may sit behind an internal-only network.",
+      "Sensitivity of content in the GCS checks bucket (state JSON and full check output logs) is unknown; it may include source snippets or env-derived output.",
+      "Cloud Tasks queue and agent concurrency or cost limits that bound the abuse impact are not in source."
+    ],
+    "validation_plan": {
+      "deployment": "Owner check, read-only: run gcloud run services describe nilocloud --region europe-west4 and inspect ingress annotation and the IAM policy for allUsers roles/run.invoker; confirm whether code.nile.ag or the service URL is reachable from outside the corporate network. Review a sample of objects in the checks bucket for sensitive content. Do not probe the live service with forged requests against real changes.",
+      "local": "Source-only: confirm via a unit test using httptest against Resolver.ServeHTTP with a stubbed task client that an unauthenticated POST to /v1/gerrit/checks/run reaches CreateVerify; then decide on a fix such as requiring a Gerrit-issued or shared-secret token, a Google ID token check, or restricting ingress."
+    }
+  },
+  {
+    "fingerprint": "nilocloud/horus-no-operator-allowlist",
+    "verdict": "needs_validation",
+    "title": "Horus /horus Slack command and unblock action have no operator allowlist or approval step beyond the Slack signature",
+    "description": "The /horus slash-command endpoint and the Slack interactive-actions endpoint authenticate only that the request was signed by Slack (SLACK_SIGNING_SECRET). Nothing in nilocloud or the gerrit task layer checks who invoked the command. user_name is read from the form and used only as a display or attribution string. Any Slack workspace member who can invoke /horus can enqueue production deploys, production DB migrations (including direction down), Play Store Android builds, and market image builds. Any member who can click the Grafana unblock button can unblock a consumer; the interaction user in the callback is never consulted. Source shows no per-user, per-channel, per-team or approval gate on any path. Whether this is a real violation depends on the intended authority of Slack workspace members and on Slack-side command or channel restrictions, which are deployment facts outside source.",
+    "claimed_root_cause": "Authorization for privileged CI/CD operations is delegated entirely to Slack workspace membership. After verifySlack, HandleSlack dispatches on the text field with no identity-based authorization (no user_id, channel_id or team_id check), and task.CreateDeploy, CreateMigrate, CreateBuildMarket and CreateAndroidBuild enqueue Cloud Tasks without any actor check. handleSlackActions ignores cb.User and the channel.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/nilocloud/internal/handlers.go",
+        "line": 14,
+        "scope": "mux route POST /v1/slack/commands/horus",
+        "description": "Slash-command endpoint reachable by Slack. A request is accepted if it carries a valid Slack signature."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/slack.go",
+        "line": 65,
+        "scope": "slackHorusHandler / verifySlack (lines 21-39)",
+        "description": "Only control is the HMAC signing-secret check. The form is parsed and passed to horus.HandleSlack at line 78. No user or channel allowlist."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/horus/horus.go",
+        "line": 47,
+        "scope": "HandleSlack",
+        "description": "Reads text and user_name (lines 48-49) and dispatches on parts[0] with no identity check. user_name is passed as an attribution string only."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/horus/horus.go",
+        "line": 124,
+        "scope": "handleDeploy / handleMigrate (line 202) / handleBuild*",
+        "description": "Accepts env=production from arbitrary args, validated only against a service-name list. Calls task.CreateDeploy, CreateMigrate (direction up or down), CreateBuildMarket and CreateAndroidBuild directly."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/gerrit/task/migrate.go",
+        "line": 63,
+        "scope": "CreateMigrate (CreateDeploy at gerrit/task/deploy.go:107 is the sibling)",
+        "description": "Validates only the service name, then enqueues a Cloud Task (createTask) that runs the migration or deploy against the chosen environment. actor/triggerName is only recorded as TriggerName. No authorization or approval."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/nilocloud/internal/slack.go",
+        "line": 112,
+        "scope": "handleSlackActions block-action loop",
+        "description": "Signed interaction callback. For ActionIDUnblockConsumer it calls GrafanaResolver().UnblockConsumer (line 121) using service, consumer id and cursor from the button value. cb.User and the channel are never checked."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/nilocloud/internal/slack.go",
+        "line": 28,
+        "description": "Signature verification uses SLACK_SIGNING_SECRET (key name only). It is the sole authentication on the horus, actions and events handlers."
+      },
+      {
+        "file": "backend/go/nilocloud/internal/horus/horus.go",
+        "line": 70,
+        "description": "deploy, build, migrate, test and verify handlers all receive only userName for attribution. No allowlist, role or approval logic exists anywhere in the horus package (grep for allow, authori, user_id, channel_id, team_id, approv returned nothing)."
+      },
+      {
+        "file": "backend/go/nilocloud/internal/horus/horus.go",
+        "line": 186,
+        "description": "Production and down are accepted as plain args for migrate, with no extra confirmation."
+      },
+      {
+        "file": "backend/go/gerrit/task/deploy.go",
+        "line": 139,
+        "description": "The actor is stored only as TriggerName. The task layer has no authorization."
+      },
+      {
+        "file": "backend/go/AGENTS.md",
+        "line": 136,
+        "description": "The Horus section describes only the Slack bot and mise CLI parity. It states no authorization model, so the intended operator authority is undocumented in source."
+      }
+    ],
+    "blockers": [
+      "Intended authority of Slack workspace members is a design fact outside source. If /horus is meant to be usable by all members of a private, trusted engineering workspace or channel, this is accepted design, not a violation.",
+      "Slack app configuration is not in source. The slash command's availability (restricted channels or user groups, workspace guest/external-member policy, Slack Connect) is unknown.",
+      "Downstream enforcement is not in source. The worker may require Gerrit/IAM-level or environment-level protections for production, and Cloud Run ingress or IAM for the endpoint is unknown."
+    ],
+    "validation_plan": {
+      "deployment": "Owner-observed, read-only. (1) In the Slack app admin console, list who can use /horus: which workspaces and channels, whether guests, restricted accounts or Slack Connect members are in them, and whether the command is limited via Slack app permissions or workflow restrictions. (2) Confirm with the platform owners whether any workspace member is intended to be able to queue production deploys and migrate down. (3) Check the Cloud Run IAM and ingress settings on nilocloud and the Cloud Tasks consumer's production guards in the infra config. Do not send live probes or trigger production tasks.",
+      "local": "Source-only check already done: no allowlist or approval exists in nilocloud/internal/horus or gerrit/task create paths. A further local check could run unit tests against HandleSlack with a stub task layer, but this is unnecessary because the absence of a check is already visible in source."
+    }
+  },
+  {
+    "verdict": "needs_validation",
+    "fingerprint": "nilocloud/shared-robot-token-webhook-unblock",
+    "title": "nilocloud: one NILO_ROBOT_TOKEN gates both inbound Sentry/Grafana webhooks (token in URL query) and the browser-callable consumer-unblock action",
+    "description": "authMiddleware in nilocloud uses a single env secret, NILO_ROBOT_TOKEN, for two different purposes. For /v1/webhooks/* it is read from the query string (?robotToken=), so it sits in webhook URLs configured in third-party tools (Sentry, Grafana) and potentially in request logs. For /v1/events/unblock it is read from 'Authorization: Bearer robotToken=<token>', and the endpoint is called directly from a browser (Grafana table action, CORS allow-origin https://obs.nile.ag). A successful call publishes a consumer-unblock Pub/Sub job. The job handler then advances the named consumer's cursor, which permanently skips the event at expected_cursor+1, and posts a Slack notice. Any holder of the webhook URL (Sentry/Grafana config readers, log readers) therefore also holds authority to skip events in ledger, trader, administrator and other consumers. Source review shows no per-purpose credential separation and a non-constant-time compare. TrimPrefix also means a bare token without the 'Bearer robotToken=' prefix is accepted. Whether this crosses a real trust boundary depends on who can read the Sentry/Grafana webhook configuration, the Grafana action config, and the Cloud Run request logs. Those are deployment facts not visible in source. Same-principal ops staff holding both capabilities would not be a finding. Hardening-grade unless the token is shown to leak to a lower-trust party.",
+    "claimed_root_cause": "A single shared static secret (NILO_ROBOT_TOKEN) authorizes both low-privilege inbound webhook delivery (credential carried in a URL query string) and a state-changing operational action (consumer unblock/skip), with no scoping, rotation separation or constant-time comparison.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/nilocloud/internal/handlers.go",
+        "line": 23,
+        "scope": "Resolver.ServeHTTP",
+        "description": "Route /v1/events/unblock (all methods, so OPTIONS preflight works) wrapped in grafanaCorsMiddleware(authMiddleware(unblockConsumerHandler)); reachable from a browser on obs.nile.ag. Webhook routes at lines 9-10 use the same authMiddleware."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/middleware.go",
+        "line": 40,
+        "scope": "authMiddleware",
+        "description": "/v1/webhooks* branch (lines 40-53): token taken from URL query robotToken and compared with != to NILO_ROBOT_TOKEN; empty env returns 500."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/middleware.go",
+        "line": 55,
+        "scope": "authMiddleware",
+        "description": "/v1/events* branch (lines 55-67): the same env var is compared (non-constant-time) against the Authorization header after TrimPrefix 'Bearer robotToken='; a bare token also passes. No scoping by purpose."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/grafana.go",
+        "line": 23,
+        "scope": "Resolver.unblockConsumerHandler / handleUnblockConsumer",
+        "description": "After auth, service, consumer_id and expected_cursor are taken from the query string (lines 36-52) with no further authorization or allow-list; calls GrafanaResolver().UnblockConsumer."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/nilocloud/internal/grafana/handlers.go",
+        "line": 154,
+        "scope": "Resolver.UnblockConsumer",
+        "description": "Publishes a consumer-unblock UnblockMessage to Pub/Sub (line 165). The job handler in internal/cloud.go (lines 126-155) then calls unblock<Service>Consumer, which skips the event, and notifyEventSkipped posts to Slack."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/nilocloud/internal/middleware.go",
+        "line": 41,
+        "description": "Webhook credential read from URL query parameter robotToken."
+      },
+      {
+        "file": "backend/go/nilocloud/internal/middleware.go",
+        "line": 49,
+        "description": "Plain != comparison on the secret (not subtle.ConstantTimeCompare)."
+      },
+      {
+        "file": "backend/go/nilocloud/internal/middleware.go",
+        "line": 62,
+        "description": "TrimPrefix on 'Bearer robotToken=' does not enforce the prefix; the same NILO_ROBOT_TOKEN value authorizes the unblock action."
+      },
+      {
+        "file": "backend/go/nilocloud/internal/middleware.go",
+        "line": 13,
+        "description": "CORS allows only https://obs.nile.ag. This is a browser-origin constraint, not an authentication control, and it confirms the endpoint is called from browser JavaScript (so the token is held in Grafana action config)."
+      },
+      {
+        "file": "backend/go/nilocloud/internal/handlers.go",
+        "line": 13,
+        "description": "Sibling Slack routes (events/slack, commands/horus, webhooks/slack/actions) are not wrapped by authMiddleware; they presumably use their own Slack signature checks, which were not reviewed here and are out of scope for this candidate."
+      }
+    ],
+    "blockers": [
+      "Who can read the Sentry/Grafana webhook URL, the Grafana action configuration (which holds the unblock bearer token), and Cloud Run request logs (which may record the query string) is not visible in source.",
+      "It is unknown whether Sentry/Grafana admins or log readers already hold equivalent operational authority to skip consumer events. If they do, this is same-principal authority and not a boundary violation.",
+      "Network exposure and ingress of the nilocloud Cloud Run service (public or restricted) is not in source."
+    ],
+    "validation_plan": {
+      "local": "Source-only: confirm in a unit test (owner-run, no network) that authMiddleware accepts a bare token on /v1/events/unblock and that no other check exists between the middleware and pubsub.SendMessage. Grep deployment manifests for where NILO_ROBOT_TOKEN is injected and whether the same secret is used for any other service.",
+      "deployment": "Owner-observed, non-destructive: (1) list who has view access to the Sentry integration webhook URL and the Grafana contact point and table-action configuration; (2) check whether Cloud Run request logs for nilocloud record query strings and who has logging.viewer on that project; (3) check Cloud Run ingress and IAM for the service. If a lower-trust party (vendor, broad log readers, non-ops Grafana editors) can read the token, upgrade to a confirmed medium finding. Otherwise downgrade to hardening: use separate per-purpose tokens, move the webhook token into a header, and use subtle.ConstantTimeCompare."
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "nilocloud/subscriptions-auth-noop",
+    "title": "nilocloud /v1/subscriptions/* routes have no effective authentication (discarded r.WithContext result); unauthenticated callers can drive Pub/Sub job dispatch",
+    "description": "authMiddleware matches the /v1/subscriptions prefix but its only action is calling r.WithContext(...) and discarding the returned request. No token, secret, or OIDC/JWT check is performed. POST /v1/subscriptions/nilo is wrapped only by this middleware and passes caller-supplied base64 message data straight to handlePubSubMessage, which dispatches privileged ops jobs (nexport pipeline start/pause/export/import/resume, consumer-unblock cursor skipping across six services, mache store restore). POST /v1/subscriptions/cloudbuild is equally open and feeds Slack notification logic. The service is deployed with --allow-unauthenticated in cloudbuild.yaml. Sibling prefixes /v1/webhooks, /v1/events and /v1/mache each do enforce a token, so the missing check on /v1/subscriptions is an outlier. The downstream gRPC Jobs handlers (ledger/administrator ops Jobs) perform no user or role check, so the discarded robot identity is not a hidden control; nilocloud's own gRPC calls carry through, and the job runs regardless.",
+    "root_cause": "The middleware branch for /v1/subscriptions does `r.WithContext(auth.NewContexWithUser(...UsrRobot()))` and drops the result (http.Request.WithContext returns a new request). Even if it had been used, it would only inject a robot identity into the context rather than verify the caller. No Pub/Sub push OIDC token verification exists anywhere in the nilocloud handler chain (handlers.go mux, main.go has only sentryhttp wrapping).",
+    "intended_behavior": "Only Google Pub/Sub push (and Cloud Build via Pub/Sub) should be able to invoke these handlers: verify the Google-signed OIDC bearer token (issuer accounts.google.com, audience = service URL, email = the push subscription service account), or at minimum a shared secret like the sibling prefixes, and reject otherwise with 401.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/nilocloud/internal/handlers.go",
+        "line": 18,
+        "scope": "Resolver.ServeHTTP",
+        "description": "Public HTTP route POST /v1/subscriptions/nilo wrapped only by authMiddleware (cloudbuild route at line 19 likewise). Service is exposed unauthenticated at the Cloud Run layer per cloudbuild.yaml."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/middleware.go",
+        "line": 70,
+        "scope": "authMiddleware",
+        "description": "Branch for /v1/subscriptions (line 69) calls r.WithContext(...) and discards the result; no rejection path exists, so next.ServeHTTP runs for every caller."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/pubsub.go",
+        "line": 36,
+        "scope": "Resolver.pubSubHandler",
+        "description": "Reads the body, unmarshals WrappedMessage with no signature/OIDC/secret verification and passes message.data to handlePubSubMessage."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/cloud.go",
+        "line": 63,
+        "scope": "Resolver.handlePubSubMessage",
+        "description": "Switches on attacker-chosen job.Type: nexport-start (line 64), nexport-pause-consumers (86), nexport-export/import/finish/resume, consumer-unblock (125) with attacker-chosen service/consumer/expected_cursor, mache-restore (157) with attacker-chosen store/revision."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/nilocloud/internal/consumers.go",
+        "line": 73,
+        "scope": "unblock*/pause*Consumers and recoverLedgerMacheStore (mache.go:18)",
+        "description": "Issues privileged gRPC Jobs calls (JobUnblockConsumer, JobPauseConsumer, JobRestoreShipmentsStores/JobRestoreProfilesStore) to administrator, ledger, trader, postman, harvester, librarian; the Jobs handlers perform no user/role check."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/nilocloud/internal/middleware.go",
+        "line": 70,
+        "description": "Result of r.WithContext discarded; only code on the /v1/subscriptions branch."
+      },
+      {
+        "file": "backend/go/nilocloud/internal/middleware.go",
+        "line": 24,
+        "description": "Contrast: /v1/webhooks (line 43), /v1/events (54) and /v1/mache (73) branches compare a token and return 401."
+      },
+      {
+        "file": "backend/go/nilocloud/internal/handlers.go",
+        "line": 18,
+        "description": "Only authMiddleware wraps the nilo subscription route; no other middleware in handlers.go or cmd/server/main.go (line 181 wraps only with sentryhttp)."
+      },
+      {
+        "file": "backend/go/nilocloud/internal/pubsub.go",
+        "line": 16,
+        "description": "Handler has no auth/OIDC check, parses and dispatches the body."
+      },
+      {
+        "file": "backend/go/nilocloud/internal/cloudbuild.go",
+        "line": 21,
+        "description": "Cloud Build handler likewise has no verification."
+      },
+      {
+        "file": "backend/go/nilocloud/cloudbuild.yaml",
+        "line": 45,
+        "description": "Deploy step uses --allow-unauthenticated."
+      },
+      {
+        "file": "backend/go/thoth/handlers.go",
+        "line": 249,
+        "description": "clientUnaryInterceptor forwards a user FID only if present in context; server interceptor (line 160) tolerates an empty user and ops Jobs (e.g. ledger/internal/ops/ops.go:1058) check no role, so downstream does not gate the call."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "network_routing",
+        "description": "Attacker must reach the nilocloud Cloud Run URL; source (cloudbuild.yaml --allow-unauthenticated; Slack/Sentry webhooks must also be reachable) indicates it is public, but live IAM/ingress settings were not observed."
+      },
+      {
+        "kind": "environmental_dependency",
+        "description": "Attacker needs the service URL and valid job JSON (types/consumer names are visible in the repository)."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "Unauthenticated internet client with the nilocloud service URL.",
+      "payloads": [
+        "POST /v1/subscriptions/nilo with body {\"message\":{\"data\":\"<base64 of {\\\"type\\\":\\\"nexport-pause-consumers\\\",\\\"info\\\":\\\"<base64 JSON string of a database name>\\\"}>\",\"id\":\"1\"},\"subscription\":\"x\"} and no Authorization header",
+        "consumer-unblock variant: data = base64 of {\"type\":\"consumer-unblock\",\"service\":\"ledger\",\"consumer\":\"<id>\",\"expected_cursor\":<n>}"
+      ],
+      "instructions": [
+        "Send the POST without any credentials.",
+        "Handler returns 200 and the dispatched job runs; a failing job returns 500 with errors logged."
+      ],
+      "observed_result": "Source-level observation only, not a runtime result: the middleware has no rejecting path for /v1/subscriptions, the handler performs no verification, and the dispatch reaches the gRPC Jobs calls. Nothing was executed."
+    },
+    "remediation": {
+      "strategy": "Verify the Pub/Sub push OIDC token (google.golang.org/api/idtoken.Validate with audience and expected service-account email) for /v1/subscriptions/*, returning 401 on failure; also set the Cloud Run service to require authentication for these paths where feasible (separate internal service or IAM invoker only for the push service account), and fix the discarded WithContext by assigning `r = r.WithContext(...)` only after verification.",
+      "code_changes": [
+        {
+          "file_name": "backend/go/nilocloud/internal/middleware.go",
+          "fixed_code": "if strings.HasPrefix(r.URL.Path, \"/v1/subscriptions\") {\n\tif err := verifyPubSubOIDC(r); err != nil {\n\t\thttp.Error(w, \"Unauthorized\", http.StatusUnauthorized)\n\t\treturn\n\t}\n\tr = r.WithContext(auth.NewContexWithUser(r.Context(), auth.UsrRobot()))\n}"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "medium",
+        "reason": "No auth is present on the path in source and the deploy command allows unauthenticated invocation, but the URL must be known and live Cloud Run ingress/IAM was not observed."
+      },
+      "impact": {
+        "score": "high",
+        "reason": "An unauthenticated caller can pause consumers across all databases, skip stuck events (permanently advancing cursors), trigger mache store restores, and start the nexport data refresh pipeline; this is unauthenticated remote disruption/mutation of shared internal services."
+      },
+      "overall_severity": "high"
+    },
+    "confidence": {
+      "score": "medium",
+      "reason": "Missing control is directly visible in source on every path; confidence is capped by unobserved deployment facts (Cloud Run IAM/ingress, whether an upstream proxy enforces auth) and by not tracing every downstream job's data effect."
+    }
+  },
+  {
+    "verdict": "needs_validation",
+    "fingerprint": "thoth/grpc-identity-from-plaintext-metadata",
+    "title": "Internal gRPC services trust caller identity from unauthenticated metadata; reachability depends on Cloud Run exposure",
+    "description": "The shared gRPC server (thoth.Resolver.ServerGRPC) registers no transport credentials and no authentication interceptor, only jetgrpc and serverUnaryInterceptor. serverUnaryInterceptor builds the request user from the caller-supplied metadata key user-firebase-id. The reserved values Robot, RobotFreshMark, RobotInputs, RobotVilla and Unauthed map directly to in-memory users with no credential check. Robot users have PartyTypeAdmin, an AdminProfileID, and for Robot also RoleRobot. Any other value goes to the default branch. There, an optional user-auth-token is only tried via UserFromToken, and a failure is ignored. The code then falls back to ContextWithUser, which loads the user by ID from Firebase (authClient.UserByID) with no credential at all. So the fallback is reachable whenever the token is empty, invalid or mismatched, which means a caller who knows a Firebase UID can act as that user. Source shows no other auth layer: all six services (librarian, ledger, harvester, trader, postman, administrator) call ServerGRPC() and add nothing else in main.go. Their cloudbuild.yaml files deploy with --allow-unauthenticated and no ingress restriction flag. Whether an external attacker can actually reach these ports (Cloud Run ingress setting, any out-of-band IAM change, network path) cannot be established from source. I found no source control that blocks the claim. This is a deployment fact, so the finding stays needs_validation and is not confirmed.",
+    "claimed_root_cause": "Service-to-service identity propagation uses plaintext gRPC metadata (user-firebase-id) that the server accepts as authoritative. Reserved robot IDs need no proof, and the Firebase-lookup fallback runs without verifying the token. Authentication therefore rests entirely on network or IAM isolation, which the deploy config does not enforce (--allow-unauthenticated).",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/thoth/handlers.go",
+        "line": 181,
+        "scope": "(*Resolver).serverUnaryInterceptor",
+        "description": "Reads user-firebase-id and user-auth-token from incoming gRPC metadata, which is attacker-controllable if the service port is reachable."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/thoth/handlers.go",
+        "line": 184,
+        "scope": "(*Resolver).serverUnaryInterceptor switch userFID",
+        "description": "Reserved IDs (Unauthed, Robot, RobotFreshMark, RobotInputs, RobotVilla) are turned into robot or admin users without any credential check."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/thoth/handlers.go",
+        "line": 202,
+        "scope": "(*Resolver).serverUnaryInterceptor default branch",
+        "description": "The token check is optional. If the token is empty, invalid or mismatched, the code falls through to ContextWithUser with the claimed ID."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/thoth/handlers.go",
+        "line": 135,
+        "scope": "ContextWithUser",
+        "description": "Loads the user by claimed Firebase UID (authClient.UserByID) and installs it in the request context via auth.NewContexWithUser, so handlers authorize as that user."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/thoth/handlers.go",
+        "line": 59,
+        "description": "ServerGRPC options contain no grpc.Creds and no auth interceptor; the chain is jetgrpc plus serverUnaryInterceptor only."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 186,
+        "description": "UsrRobot returns an admin-party user (AdminIDNile) with RoleRobot; the other robots (lines 207 to 242) are admin-party too."
+      },
+      {
+        "file": "backend/go/ledger/cmd/server/main.go",
+        "line": 68,
+        "description": "Services use thothResolver.ServerGRPC() unmodified; the same call is in librarian:80, harvester:72, trader:63, postman:76 and administrator:70."
+      },
+      {
+        "file": "backend/go/ledger/cloudbuild.yaml",
+        "line": 45,
+        "description": "Cloud Run deploy uses --allow-unauthenticated with no ingress restriction flag; the same applies to the other services (librarian:40)."
+      },
+      {
+        "file": "backend/go/thoth/handlers.go",
+        "line": 120,
+        "description": "Clients dial with TLS when the host contains 443, which gives encryption but no caller authentication."
+      }
+    ],
+    "blockers": [
+      "Cloud Run ingress setting (all, internal, internal-and-cloud-load-balancing) and any out-of-band IAM or invoker changes for each gRPC service are not in source.",
+      "Whether the service URLs are discoverable and reachable from the internet, and whether a front proxy or VPC controls sit in front of them, is not in source.",
+      "Source cannot show which handlers behind this interceptor expose sensitive operations, so impact depends on a service-by-service check."
+    ],
+    "validation_plan": {
+      "local": "Source review only, no execution: list each gRPC service's handlers and the authorization checks they make on auth.UserFromContext. Check whether any handler treats RoleRobot or an admin PartyType as sufficient for sensitive reads or writes. Optionally write a unit test with an in-process gRPC server (bufconn) built from ServerGRPC that sends user-firebase-id=Robot and confirms the handler context holds the admin robot user. No network and no live Firebase.",
+      "deployment": "The owner should run read-only gcloud queries: gcloud run services describe <svc> --region europe-west4 and check the ingress annotation (run.googleapis.com/ingress), then gcloud run services get-iam-policy <svc> and check whether allUsers holds roles/run.invoker. Use the same project that the deploy cloudbuild.yaml targets. Also check whether the service URLs appear in any public DNS or client config. Do not send live requests with forged metadata. If ingress is 'internal' or the invoker is restricted to the caller services' service accounts, downgrade or reject. If it is 'all' with allUsers invoker, upgrade to confirmed with high or critical severity, since robot admin identity gives cross-tenant access."
+    }
+  }
+]

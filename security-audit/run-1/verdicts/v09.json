@@ -1,0 +1,91 @@
+{
+  "decision": "needs_validation",
+  "record": {
+    "fingerprint": "nilocloud/horus-no-operator-allowlist",
+    "verdict": "needs_validation",
+    "title": "Horus /horus Slack command and unblock action have no operator allowlist or approval step beyond the Slack signature",
+    "description": "The /horus slash-command endpoint and the Slack interactive-actions endpoint authenticate only that the request was signed by Slack (SLACK_SIGNING_SECRET). Nothing in nilocloud or the gerrit task layer checks who invoked the command. user_name is read from the form and used only as a display or attribution string. Any Slack workspace member who can invoke /horus can enqueue production deploys, production DB migrations (including direction down), Play Store Android builds, and market image builds. Any member who can click the Grafana unblock button can unblock a consumer; the interaction user in the callback is never consulted. Source shows no per-user, per-channel, per-team or approval gate on any path. Whether this is a real violation depends on the intended authority of Slack workspace members and on Slack-side command or channel restrictions, which are deployment facts outside source.",
+    "claimed_root_cause": "Authorization for privileged CI/CD operations is delegated entirely to Slack workspace membership. After verifySlack, HandleSlack dispatches on the text field with no identity-based authorization (no user_id, channel_id or team_id check), and task.CreateDeploy, CreateMigrate, CreateBuildMarket and CreateAndroidBuild enqueue Cloud Tasks without any actor check. handleSlackActions ignores cb.User and the channel.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/nilocloud/internal/handlers.go",
+        "line": 14,
+        "scope": "mux route POST /v1/slack/commands/horus",
+        "description": "Slash-command endpoint reachable by Slack. A request is accepted if it carries a valid Slack signature."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/slack.go",
+        "line": 65,
+        "scope": "slackHorusHandler / verifySlack (lines 21-39)",
+        "description": "Only control is the HMAC signing-secret check. The form is parsed and passed to horus.HandleSlack at line 78. No user or channel allowlist."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/horus/horus.go",
+        "line": 47,
+        "scope": "HandleSlack",
+        "description": "Reads text and user_name (lines 48-49) and dispatches on parts[0] with no identity check. user_name is passed as an attribution string only."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/nilocloud/internal/horus/horus.go",
+        "line": 124,
+        "scope": "handleDeploy / handleMigrate (line 202) / handleBuild*",
+        "description": "Accepts env=production from arbitrary args, validated only against a service-name list. Calls task.CreateDeploy, CreateMigrate (direction up or down), CreateBuildMarket and CreateAndroidBuild directly."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/gerrit/task/migrate.go",
+        "line": 63,
+        "scope": "CreateMigrate (CreateDeploy at gerrit/task/deploy.go:107 is the sibling)",
+        "description": "Validates only the service name, then enqueues a Cloud Task (createTask) that runs the migration or deploy against the chosen environment. actor/triggerName is only recorded as TriggerName. No authorization or approval."
+      },
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/nilocloud/internal/slack.go",
+        "line": 112,
+        "scope": "handleSlackActions block-action loop",
+        "description": "Signed interaction callback. For ActionIDUnblockConsumer it calls GrafanaResolver().UnblockConsumer (line 121) using service, consumer id and cursor from the button value. cb.User and the channel are never checked."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/nilocloud/internal/slack.go",
+        "line": 28,
+        "description": "Signature verification uses SLACK_SIGNING_SECRET (key name only). It is the sole authentication on the horus, actions and events handlers."
+      },
+      {
+        "file": "backend/go/nilocloud/internal/horus/horus.go",
+        "line": 70,
+        "description": "deploy, build, migrate, test and verify handlers all receive only userName for attribution. No allowlist, role or approval logic exists anywhere in the horus package (grep for allow, authori, user_id, channel_id, team_id, approv returned nothing)."
+      },
+      {
+        "file": "backend/go/nilocloud/internal/horus/horus.go",
+        "line": 186,
+        "description": "Production and down are accepted as plain args for migrate, with no extra confirmation."
+      },
+      {
+        "file": "backend/go/gerrit/task/deploy.go",
+        "line": 139,
+        "description": "The actor is stored only as TriggerName. The task layer has no authorization."
+      },
+      {
+        "file": "backend/go/AGENTS.md",
+        "line": 136,
+        "description": "The Horus section describes only the Slack bot and mise CLI parity. It states no authorization model, so the intended operator authority is undocumented in source."
+      }
+    ],
+    "blockers": [
+      "Intended authority of Slack workspace members is a design fact outside source. If /horus is meant to be usable by all members of a private, trusted engineering workspace or channel, this is accepted design, not a violation.",
+      "Slack app configuration is not in source. The slash command's availability (restricted channels or user groups, workspace guest/external-member policy, Slack Connect) is unknown.",
+      "Downstream enforcement is not in source. The worker may require Gerrit/IAM-level or environment-level protections for production, and Cloud Run ingress or IAM for the endpoint is unknown."
+    ],
+    "validation_plan": {
+      "deployment": "Owner-observed, read-only. (1) In the Slack app admin console, list who can use /horus: which workspaces and channels, whether guests, restricted accounts or Slack Connect members are in them, and whether the command is limited via Slack app permissions or workflow restrictions. (2) Confirm with the platform owners whether any workspace member is intended to be able to queue production deploys and migrate down. (3) Check the Cloud Run IAM and ingress settings on nilocloud and the Cloud Tasks consumer's production guards in the infra config. Do not send live probes or trigger production tasks.",
+      "local": "Source-only check already done: no allowlist or approval exists in nilocloud/internal/horus or gerrit/task create paths. A further local check could run unit tests against HandleSlack with a stub task layer, but this is unnecessary because the absence of a check is already visible in source."
+    }
+  },
+  "separate_root_causes": []
+}

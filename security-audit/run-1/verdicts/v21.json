@@ -1,0 +1,82 @@
+{
+  "decision": "needs_validation",
+  "record": {
+    "verdict": "needs_validation",
+    "fingerprint": "H5-admin-not-platform-scoped",
+    "title": "Admin-party GraphQL resolvers do not bind the target profile to the caller's platform (AdminProfileID)",
+    "description": "Admin-party callers can supply an arbitrary profile ID to GraphQL resolvers (Profile, ProfileNew, AccountingDoc and similar) and the target profile's AdminProfileID is never compared with the caller's AdminProfileID. checkPlatform only checks that the caller's own AdminProfileID equals the X-Platform header. It does not limit which profiles the caller may read. Whether this is a real cross-tenant break or intended staff-wide access depends on whether the four platforms (1 Nile, 2 Freshmark, 3 Nile Inputs, 4 Villa) are separate organizations or all Nile-staffed. Source cannot decide that, so the verdict stays needs_validation. This was a source-only review; no code was run.",
+    "claimed_root_cause": "Authorization for Admin party type is role-only (PartyTypeAdmin) with no comparison of the target profile's AdminProfileID to the caller's AdminProfileID. The platform check at login/request time (checkPlatform) binds the caller to one platform header but not the data they may address.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2461,
+        "scope": "queryResolver.Profile",
+        "description": "Authenticated Admin caller supplies input.ID. If PartyType is Admin and ID is non-zero, the value is used as-is. Non-admins are forced to their own ProfileID."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/auth_checks.go",
+        "line": 78,
+        "scope": "AccountingDocAuthorized",
+        "description": "The check only requires that the caller is Admin or that profileUUID equals the caller's ProfileID. Admin bypasses the profile comparison, with no AdminProfileID comparison."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 494,
+        "scope": "checkPlatform",
+        "description": "Requires usr.AdminProfileID to equal the X-Platform header. This binds the caller to one platform but does not restrict which profile IDs they may query."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2478,
+        "scope": "queryResolver.Profile",
+        "description": "r.Ledger.Profile, r.Administrator.Profiles and r.Ledger.Transactions are called with the caller-chosen input.ID. In the lines reviewed, no profile.AdminProfileID == caller.AdminProfileID check was found."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2467,
+        "description": "Admin may pass any non-zero input.ID. Only non-admins are overridden with their own profile ID."
+      },
+      {
+        "file": "backend/go/api/internal/graph/auth_checks.go",
+        "line": 78,
+        "description": "AccountingDocAuthorized gives Admin an unconditional pass on profile ownership."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 504,
+        "description": "checkPlatform compares only the caller's AdminProfileID with the X-Platform header."
+      },
+      {
+        "file": "backend/go/ledger/types.go",
+        "line": 165,
+        "description": "Profile carries AdminProfileID, so a per-platform comparison was feasible but is not applied in these resolvers."
+      },
+      {
+        "file": "backend/go/ledger/internal/ops/shipment_actions.go",
+        "line": 1483,
+        "description": "Calibration: some write paths do compare seller and buyer AdminProfileID, so platform scoping is enforced selectively in places. This suggests it is a known concern. It does not cover the read resolvers named in the candidate."
+      },
+      {
+        "file": "docs/shipit-core-connector-plan.md",
+        "line": 53,
+        "description": "Docs describe platforms by admin ID (1 Nile, 2 Freshmark, 3 Nile Inputs, 4 Villa) and say the platform check is a sign-in binding. Nothing in the docs says whether the platforms are separate legal or organizational tenants."
+      }
+    ],
+    "blockers": [
+      "Whether the four platforms are separate organizations or tenants with distinct staff, as opposed to one company's staff operating multiple brands, is a business and deployment fact that is not in source. If all admins are Nile staff, this is a design choice and not a security boundary.",
+      "Source review covered only the resolvers and auth checks. It did not exhaustively confirm that the ledger and administrator services (r.Ledger.Profile, Administrator.Profiles, Transactions) do not scope by the caller's AdminProfileID in the database queries. The auth context is passed in, so a downstream filter is possible.",
+      "Whether Admin-party users are in practice provisioned per platform, so that a Villa or Inputs admin is a different population from Nile staff, is not visible in source."
+    ],
+    "validation_plan": {
+      "local": "Read the ledger Profile, Transactions and administrator Profiles implementations to see whether any query filters by auth.UserFromContext(ctx).AdminProfileID. Then run a local test with seeded profiles under two different AdminProfileIDs. Query as a platform-1 admin with a platform-2 profile ID and check whether data is returned. Use the repo's own test harness on dummy data only.",
+      "deployment": "The owner should state whether Freshmark, Nile Inputs and Villa admins are distinct organizations, or whether external or partner staff hold Admin party type on any platform. In production Firebase and the users table, list the distinct Admin-party users per AdminProfileID. Review resolver access logs for admin queries whose profile ID belongs to a different AdminProfileID than the caller. Do not probe live."
+    }
+  },
+  "separate_root_causes": []
+}

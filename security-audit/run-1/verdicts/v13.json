@@ -1,0 +1,134 @@
+{
+  "decision": "confirmed",
+  "record": {
+    "verdict": "confirmed",
+    "fingerprint": "H5-unauth-opname-bypass",
+    "title": "Unauthenticated GraphQL access to any operation by naming it Signup/SignUp/ValidateCurrentToken",
+    "description": "AuthOperation maps the literal Authorization value 'unauthenticated' to a placeholder unauthed user, then only rejects that user when the client-supplied GraphQL operation name is not in a small public allowlist. The operation name is attacker-chosen and independent of the selection set, so any query or mutation can run anonymously by labelling it 'Signup'. No later directive, field middleware or resolver-wrapper blocks the unauthed user, and many resolvers perform no auth.Checks of their own. The unauthed user is propagated to downstream gRPC services, whose server interceptor accepts it without rejection.",
+    "root_cause": "The public-operation allowlist is keyed on op.Operation.Name (client-controlled label) instead of the actual root fields being executed, and unauthenticated state is otherwise enforced only by per-resolver checks that some resolvers omit.",
+    "intended_behavior": "Only the signup/token-validation root fields should be reachable without a valid identity; all other fields should be rejected for the unauthed user regardless of the operation name chosen by the client.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/cmd/server/main.go",
+        "line": 120,
+        "scope": "gqlgen server setup",
+        "description": "Public GraphQL endpoint; the only auth is AroundOperations(AuthOperation()). No AroundFields/AroundRootFields or schema directives are registered."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 379,
+        "scope": "Client.AuthOperation",
+        "description": "Authorization header read from the request, passed to userFromIDToken."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 466,
+        "scope": "Client.userFromIDToken",
+        "description": "The literal token 'unauthenticated' returns UsrUnauthed() (FirebaseUID FIDUnauthed, ProfileID 0) with no credential check; checkPlatform also returns nil for unauthed users (auth.go:495)."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 404,
+        "scope": "Client.AuthOperation",
+        "description": "Unauthed users are rejected only if op.Operation.Name is not in publicOperations (auth.go:422: ValidateCurrentToken, SignUp, Signup). The name is client-chosen, so naming any operation 'Signup' passes; the context is then populated with the unauthed user and next(ctx) runs the real selection set (auth.go:410-417)."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/thoth/handlers.go",
+        "line": 184,
+        "scope": "serverUnaryInterceptor",
+        "description": "Downstream gRPC services accept FIDUnauthed from metadata and install UsrUnauthed without rejecting."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2786,
+        "scope": "queryResolver.LogisticsDoc",
+        "description": "Resolver has no auth.Checks; it queries Ledger.Shipments filtered by the attacker-supplied profileID and date and returns a packing list including product, case and location data and shipping addresses (logisticsdocs.go:54+, shipments.go:2597). Ledger.Shipments has no user check (ledger/internal/ops/ops.go:971)."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 404,
+        "description": "Allowlist check uses op.Operation.Name, the only gate for the unauthed user."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 422,
+        "description": "publicOperations list is a set of operation names, not field names."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 466,
+        "description": "The string 'unauthenticated' is accepted as a token yielding UsrUnauthed."
+      },
+      {
+        "file": "backend/go/api/cmd/server/main.go",
+        "line": 120,
+        "description": "AuthOperation is the only registered auth middleware for the API."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1932,
+        "description": "UpdateClaims has no auth check; r.updateClaims (graph/claims.go:12) looks up users by arbitrary emails and rewrites Firebase claims via AuthClient.UpdateUsers (auth.go:837)."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1130,
+        "description": "UploadPop has no auth check and writes a proof-of-payment URL for an arbitrary quoteID via Trader.Set (downstream authorization not verified)."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 2800,
+        "description": "Sibling resolvers such as Shipments (line 2796 area) do call auth.Checks, showing the per-resolver check is the intended control and LogisticsDoc omits it."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "network_routing",
+        "description": "The API GraphQL HTTP endpoint is reachable by the attacker (Cloud Run ingress/IAM not visible in source; the endpoint is the client-facing API)."
+      },
+      {
+        "kind": "authentication_level",
+        "description": "None required: Authorization: unauthenticated plus operationName Signup."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "Anonymous internet client with no account.",
+      "payloads": [
+        "POST /query with header Authorization: unauthenticated and body {\"operationName\":\"Signup\",\"query\":\"query Signup { logisticsDoc(logDocType: SELLER_PACKING_LIST, profileID: 1, date: \\\"2026-01-01T00:00:00Z\\\") { info { title } tables { rows { cells } } } }\"}"
+      ],
+      "instructions": [
+        "Send the request with the literal Authorization value 'unauthenticated' and X-Platform header of any value (checkPlatform returns early for unauthed users).",
+        "Vary profileID and date to enumerate seller shipment data across tenants.",
+        "Optionally issue mutation Signup { updateClaims(userEmails: [\"x@y\"]) } or uploadPOP the same way."
+      ],
+      "observed_result": "Source-level observation, not a runtime result: the unauthed user passes auth.go:404 because the operation name matches the allowlist, and LogisticsDoc and Ledger.Shipments contain no user check on the path."
+    },
+    "remediation": {
+      "strategy": "Enforce the allowlist on the actual root field names (inspect op.Operation.SelectionSet) or use an AroundRootFields/directive that rejects the unauthed user for every field except signUp/validateCurrentToken; also remove the plain 'unauthenticated' sentinel from client-reachable token handling; add auth.Checks to LogisticsDoc, UpdateClaims and UploadPop.",
+      "code_changes": []
+    },
+    "severity": {
+      "likelihood": {
+        "score": "high",
+        "reason": "Trivial request, no credentials, deterministic; exposure depends only on the API endpoint being internet-reachable, which is unobserved but expected for a client-facing GraphQL API."
+      },
+      "impact": {
+        "score": "high",
+        "reason": "Cross-tenant unauthenticated read of shipment/packing-list data including shipping addresses and seller/buyer info, plus unauthenticated invocation of other unchecked mutations (UpdateClaims, UploadPop); full extent across all resolvers not enumerated."
+      },
+      "overall_severity": "high"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "The gate, its name-based allowlist, the absence of other middleware or directives, and a concrete unchecked resolver with real data were all directly read in source; only network reachability is an unobserved deployment fact."
+    }
+  },
+  "separate_root_causes": []
+}

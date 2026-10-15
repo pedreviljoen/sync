@@ -1,0 +1,8 @@
+[
+  {
+    "fp": "c4-ios-webview-thirdparty-page-reaches-bridge-and-token",
+    "sep": [
+      "NileWebView.swift:681 writes a page-supplied filename via appendingPathComponent without stripping path separators, so a '..' filename could escape the temp directory. It is limited to a %PDF-prefixed body and the app sandbox. It shares the same entrypoint but is a distinct input-validation weakness."
+    ]
+  }
+]

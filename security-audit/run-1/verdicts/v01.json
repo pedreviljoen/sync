@@ -1,0 +1,71 @@
+{
+  "decision": "needs_validation",
+  "record": {
+    "verdict": "needs_validation",
+    "fingerprint": "auth/hardcoded-shared-robot-token",
+    "title": "Hardcoded shared robot bearer token accepted by the public GraphQL auth middleware yields platform-admin robot identity",
+    "description": "backend/go/auth/auth.go defines the constant robotToken (line 30, key robotToken; value not reproduced here). userFromIDToken (line 467) accepts it with a plain switch match (case at line 468) on the Authorization bearer. It then parses the caller-supplied X-Platform header as an admin id (line 469) and returns DetermineRobotUser(aid) (line 473). That returns a User with PartyTypeAdmin, ProfileID and AdminProfileID set to the chosen platform's admin id, and RoleRobot (UsrRobot, lines 183-192; mapping at 246-257 covers Nile, Freshmark, Inputs and Villa). AuthOperation (line 373) is installed on the public GraphQL server (backend/go/api/cmd/server/main.go:120). It calls userFromIDToken at line 393, and checkPlatform passes because AdminProfileID equals the header value. No environment gate, expiry, IP restriction or per-tenant secret exists in source. The same literal is embedded in backend/functions/firebase/functions/src/pdf.ts:30 and is also usable on AuthHTTP (auth.go:432). Source establishes the acceptance path. It does not establish that the literal is the live production secret, or that the secret reaches anyone outside the trusted engineering boundary, or that the endpoint is internet-reachable. A newer Google service-account OIDC path (robotFromServiceAccount, auth.go:480) exists as a replacement, which suggests the shared literal is a legacy path that may still be live.",
+    "claimed_root_cause": "A long-lived shared secret is committed in source and compared directly in the authentication path. The tenant it applies to is chosen by the caller through X-Platform. The secret cannot be rotated without a code change and redeploy, and any copy of the source gives cross-tenant admin-equivalent access if the value is live.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/cmd/server/main.go",
+        "line": 120,
+        "scope": "gqlgen server setup",
+        "description": "AuthOperation middleware is attached to the public /graphql server, so the Authorization and X-Platform headers are caller-controlled."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 393,
+        "scope": "(*Client).AuthOperation",
+        "description": "Bearer token and X-Platform header are read (lines 379-392) and passed to userFromIDToken."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 468,
+        "scope": "(*Client).userFromIDToken",
+        "description": "A token equal to the hardcoded robotToken matches this case. X-Platform is parsed as an int64 admin id (line 469)."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/auth/auth.go",
+        "line": 473,
+        "scope": "(*Client).userFromIDToken / DetermineRobotUser",
+        "description": "Returns an admin-party robot User for the caller-chosen tenant. AuthOperation then places it in context (line 410), and the checkPlatform, rejected-status and unauthed-operation checks all pass."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 30,
+        "description": "Hardcoded robotToken constant, plus potatoesSaToken at line 31 (a separate hardcoded secret with the same pattern). Exposed via GetRobotToken at line 34."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 183,
+        "description": "UsrRobot is PartyTypeAdmin with ProfileID and AdminProfileID set to the platform admin id and RoleRobot. DetermineRobotUser at line 246 selects the robot by caller-supplied admin id."
+      },
+      {
+        "file": "backend/functions/firebase/functions/src/pdf.ts",
+        "line": 30,
+        "description": "The same literal is embedded in the pdf Cloud Function."
+      }
+    ],
+    "blockers": [
+      "Cannot tell from source whether the committed literal is the live production secret, or already rotated, or a dev-only value.",
+      "Cannot tell from source who has read access to the repository or its copies, which determines whether 'source copy' is a lower-trust principal.",
+      "Cannot tell from source whether the /graphql ingress is reachable by unauthenticated internet callers, or only via an IAP, VPN or private ingress.",
+      "The effective permissions of the Robot admin user across resolvers and access checks (e.g. RoleRobot handling) were not fully enumerated in this pass."
+    ],
+    "validation_plan": {
+      "local": "In a dev environment, send a GraphQL request with Authorization set to the robot token and X-Platform set to a dev admin id. Confirm the resolver context user is the robot admin, and enumerate which resolvers or directives authorize PartyTypeAdmin or RoleRobot. Run only against a local or dev instance.",
+      "deployment": "Owner-observed check, not a live probe: confirm in Secret Manager or deploy configuration whether the committed value matches the production token. Review repository and fork access lists and any past leakage. Review Cloud Run ingress and IAM for the GraphQL service. Review auth logs for FIDRobot users arriving from non-service IPs. Rotate the secret and migrate callers to the OIDC service-account path (robot_oidc.go) as a precaution."
+    }
+  },
+  "separate_root_causes": [
+    "backend/functions/firebase/functions/src/pdf.ts:~30 appends the robot token as a query parameter to a caller-supplied url before the headless browser navigates to it. If the caller can choose the host, the token is sent to an attacker-controlled server (token exfiltration and SSRF-like). Authentication on that function was not verified in this pass.",
+    "backend/go/auth/auth.go:31 hardcodes a second shared secret, potatoesSaToken (same pattern, narrower scope: export query only)."
+  ]
+}

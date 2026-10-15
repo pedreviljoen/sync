@@ -1,0 +1,36 @@
+{
+  "run_id": "core-run-2",
+  "repo": "core",
+  "target": "/Users/pedreviljoen/Documents/work/nile/core",
+  "source_ref": {
+    "commit": null,
+    "note": "not a git repository (Sapling checkout); worktree state unknown"
+  },
+  "profile": "quick",
+  "scope_paths": [
+    "client/"
+  ],
+  "budget": null,
+  "execution_policy": "sandboxed-source-and-local-only",
+  "selected_companion_files": [
+    "CLIENT-SIDE.md",
+    "DESKTOP-MOBILE-AND-LOCAL-IPC.md",
+    "WEB-PROTOCOL-AND-AUTH.md",
+    "SUPPLY-CHAIN-AND-RELEASE.md"
+  ],
+  "prior_runs": [
+    "/Users/pedreviljoen/security-audit-skill/core/run-1 (scope backend/; disjoint scope, used only for cross-referencing backend findings)"
+  ],
+  "shared_file_owners": {
+    "all": "parent"
+  },
+  "run_status": "complete",
+  "coverage_note": "quick profile, client/ scope only: partial coverage; 10 deferred units; verifier checks not appended to ledger local_checks",
+  "agents_spent": {
+    "recon": 4,
+    "hunters": 7,
+    "critic": 1,
+    "verifiers": 7,
+    "total": 19
+  }
+}

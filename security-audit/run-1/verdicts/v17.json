@@ -1,0 +1,120 @@
+{
+  "decision": "confirmed",
+  "record": {
+    "fingerprint": "H5-packhouse-any-seller",
+    "verdict": "confirmed",
+    "title": "Packhouse allocation mutations accept any seller's sellerID from any Seller/Admin user (ID binding is dead code)",
+    "description": "PackhouseSetAllocation, PackhouseItemAllocations, PackhouseItemMixed and PackhouseClearInventories authorize with auth.Checks(PartyTypes(Admin, Seller), PartyTypeForID(sellerID)). auth.Checks has ANY semantics and PartyTypeForID is called without party types, so it can never be true. Any authenticated Seller therefore passes the first check for every sellerID. The only other gate is the role permission PackhouseAllocations/Write, which is global and not bound to a seller. A Seller-party user holding a Packhouse or PackhouseWorker role (or a Tech or Super role) can set or clear another seller's packhouse stock and allocations in the ledger.",
+    "root_cause": "The ownership check auth.PartyTypeForID(sellerID) is called with an empty allowed-party-type list. slices.Contains over an empty slice is always false, so the check can never pass. It is also OR-ed with PartyTypes(Admin, Seller), which already admits every seller regardless of sellerID. The client-supplied sellerID is passed straight to the trader and ledger with no binding to the caller's ProfileID.",
+    "intended_behavior": "A seller-party caller may only act on their own sellerID (PartyTypeForID(sellerID, PartyTypeSeller)). Admins may act on any seller. Per-seller binding should be required, not alternative.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1015,
+        "scope": "mutationResolver.PackhouseSetAllocation",
+        "description": "GraphQL mutation takes a client-supplied input.SellerID. The auth.Checks call passes for any Seller or Admin party type. The same pattern is at lines 1028 (PackhouseItemAllocations), 1041 (PackhouseItemMixed) and 1061 (PackhouseClearInventories)."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/checks.go",
+        "line": 82,
+        "scope": "auth.PartyTypeForID",
+        "description": "With no allowed party types, slices.Contains is always false, so the profile-ID check never passes. auth.Checks (line 40) returns nil if ANY check passes, so PartyTypes(Admin, Seller) alone decides."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1018,
+        "scope": "access.Has(PackhouseAllocations, Write)",
+        "description": "The role permission check is global. It confirms the caller has a role such as Packhouse, PackhouseWorker, Tech or Super, but it is not tied to any sellerID."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/internal/graph/packhouse.go",
+        "line": 1003,
+        "scope": "setPackhouseAllocation / setPackhouseItemAllocations / ledger Set",
+        "description": "The victim sellerID is used to fetch that seller's products via the trader service and to write ledger.NewPackhouseSet(input.SellerID, ...) through r.Ledger.Set. PackhouseClearInventories calls r.Ledger.Set with NewPackhouseClear(sellerID) at schema.resolvers.go:1062. No caller-versus-seller check exists downstream in these functions."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/auth/checks.go",
+        "line": 40,
+        "description": "Checks returns nil if ANY check passes (OR semantics)."
+      },
+      {
+        "file": "backend/go/auth/checks.go",
+        "line": 82,
+        "description": "PartyTypeForID requires the profile ID to match AND the party type to be in a variadic list. Called with no list, the second condition is always false."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1015,
+        "description": "PartyTypes(Admin, Seller) plus PartyTypeForID(input.SellerID) with no party types. Repeated at lines 1028, 1041 and 1061."
+      },
+      {
+        "file": "backend/go/access/access.go",
+        "line": 12,
+        "description": "access.Has only inspects the user's roles and is not bound to a seller."
+      },
+      {
+        "file": "backend/go/access/permissions/permissions.go",
+        "line": 247,
+        "description": "PackhousePermissions and PackhouseWorkerPermissions (line 252) grant PackhouseAllocations Write to those roles."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "Authenticated user with party type Seller (or Admin)."
+      },
+      {
+        "kind": "authorization_role",
+        "description": "The user must hold a role granting PackhouseAllocations/Write (Packhouse, PackhouseWorker, Tech or Super). PackhouseItemMixed additionally requires a native farmer app origin (auth.IsNativeFromContext)."
+      },
+      {
+        "kind": "data_state",
+        "description": "A victim seller with products must exist. Another seller's ID must be known or guessable (int64 profile ID)."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "A seller-party user with a packhouse role, for example a packhouse operator at one seller, calls the mutation with another seller's profile ID.",
+      "payloads": [
+        "mutation { packhouseClearInventories(sellerID: <victimSellerID>) }",
+        "mutation { packhouseSetAllocation(input:{sellerID:<victimSellerID>, allocations:[...]}) }"
+      ],
+      "instructions": [
+        "Authenticate as a Seller-party user holding the Packhouse role.",
+        "Send packhouseClearInventories or packhouseSetAllocation with a sellerID different from the caller's profile ID.",
+        "The auth.Checks call passes on the PartyTypes(Admin, Seller) branch and access.Has passes on the role, so the ledger write executes for the victim seller."
+      ],
+      "observed_result": "Source-level observation, not a runtime result. The ownership check is absent on every path through these four resolvers. Nothing was executed."
+    },
+    "remediation": {
+      "strategy": "Require ownership for seller callers. Allow Admin for any seller, and for Seller allow only PartyTypeForID(sellerID, PartyTypeSeller). Replace the broad PartyTypes(Seller) check with that, and add a regression test for cross-seller calls.",
+      "code_changes": [
+        {
+          "file_name": "backend/go/api/internal/graph/schema.resolvers.go",
+          "fixed_code": "auth.Checks(ctx, auth.PartyTypes(users.PartyTypeAdmin), auth.PartyTypeForID(input.SellerID, users.PartyTypeSeller))"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "medium",
+        "reason": "Requires a Seller-party user with a packhouse-type role and knowledge of a victim seller ID. Who holds these roles in production is not visible in source."
+      },
+      "impact": {
+        "score": "medium",
+        "reason": "Cross-seller write and clear of packhouse stock and allocation ledger data, which can disrupt another seller's inventory and orders. No data read and no account takeover."
+      },
+      "overall_severity": "medium"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "The semantics of Checks, PartyTypes and PartyTypeForID were re-read directly. The sellerID flows unbound to the trader and ledger calls, and no other control was found on the path."
+    }
+  },
+  "separate_root_causes": []
+}

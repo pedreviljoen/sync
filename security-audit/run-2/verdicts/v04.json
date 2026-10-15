@@ -1,0 +1,86 @@
+{
+  "decision": "needs_validation",
+  "record": {
+    "verdict": "needs_validation",
+    "fingerprint": "c4-ios-webview-thirdparty-page-reaches-bridge-and-token",
+    "title": "iOS wrapper WebView lets any non-blocklisted third-party page load in-app with the startDownload bridge and deviceToken injection attached",
+    "description": "NileWebView's navigation policy only diverts Notion, social-media and 'firebasestorage' URLs to the system browser. Every other URL is allowed, and target=_blank popups are cancelled and reloaded in the same WKWebView. The 'startDownload' script message handler is registered on the webView configuration, so it applies to all frames and origins, and it never checks message.frameInfo or the sender's host. The handler fetches a page-supplied URL with URLSession.shared, accepts it if the response begins with %PDF, and writes it to the temp directory under a page-supplied filename that is not path-normalised. Separately, updateLocalStorage and notifyJavaScriptOfStorageChange run evaluateJavaScript into whatever page is current. They write localStorage.deviceToken (the FCM token) and postMessage it with targetOrigin '*', with no host check. The only host gate in the file is on universal-link reloads (line 148). The market web app does send server-supplied external URLs to window.open(url,'_blank') or window.location.href (Post.tsx:127, Explore.tsx:92, useHandleLink.ts:33). Source therefore shows an unguarded path once a third-party page is loaded, but the exploit depends on whether any lower-trust party can author such a URL (Explore post URLs and action URLs). I found no backend source showing that, and the post-authoring role is a deployment/data fact. Impact is also bounded: the exposed secret is an FCM device token, which is not a Nile session credential. The file write is limited to PDFs in the app temp directory, and the URL fetch is a blind PDF-only SSRF-like request from the device. Not confirmable from source alone.",
+    "claimed_root_cause": "WKWebView navigation policy is a small blocklist rather than a host allowlist, and the native bridge (startDownload handler plus deviceToken evaluateJavaScript injection) is attached to the web view without origin or frame checks, so any third-party page that gets loaded in-app inherits the bridge and receives the device token.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "client/market/src/screens/Explore/Post.tsx",
+        "line": 127,
+        "scope": "Read more onClick",
+        "description": "For non-Nile post URLs the web app calls window.open(post.url,'_blank') with a server-supplied URL. Explore.tsx:92 and hooks/useHandleLink.ts:33 do the same via window.open/location.href. Who authors these URLs is not established from source."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/ios/Nile/Nile/NileWebView.swift",
+        "line": 431,
+        "scope": "Coordinator.webView(_:decidePolicyFor:navigationAction:)",
+        "description": "externalLinkPolicy (line 475) cancels only Notion, social and 'firebasestorage' URLs. A nil targetFrame (target=_blank) is cancelled and reloaded in the same webView (lines 442-445). All other URLs, including top-frame and subframe loads, are allowed. decidePolicyFor navigationResponse allows everything (line 456). No other navigation or UI delegate exists in the iOS sources that I found."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/ios/Nile/Nile/NileWebView.swift",
+        "line": 253,
+        "scope": "setupMessageHandler / MessageHandler.userContentController(didReceive:)",
+        "description": "The 'startDownload' handler is added to the webView's userContentController (all frames). The handler at line 591 parses only body.url and body.filename. It performs no check of message.frameInfo or the origin."
+      },
+      {
+        "kind": "sink",
+        "file": "client/ios/Nile/Nile/NileWebView.swift",
+        "line": 662,
+        "scope": "MessageHandler.processDownload",
+        "description": "URLSession.shared fetches the page-supplied URL (line 649). If the body begins with %PDF it is written to temporaryDirectory.appendingPathComponent(page-supplied filename) (line 681) and a share sheet is presented. The filename is not sanitised."
+      },
+      {
+        "kind": "sink",
+        "file": "client/ios/Nile/Nile/NileWebView.swift",
+        "line": 181,
+        "scope": "updateLocalStorage / notifyJavaScriptOfStorageChange",
+        "description": "evaluateJavaScript writes localStorage.setItem('deviceToken', ...) (line 181) and window.postMessage({type:'storageChange',key:'deviceToken',newValue:...},'*') (line 159) into the current page, whatever its origin."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "client/ios/Nile/Nile/NileWebView.swift",
+        "line": 431,
+        "description": "decidePolicyFor allows every URL not matched by the Notion/social/firebasestorage blocklist. target=_blank popups load in the same webView."
+      },
+      {
+        "file": "client/ios/Nile/Nile/NileWebView.swift",
+        "line": 148,
+        "description": "Only the universal-link reload path checks the host (market.nile.ag, market-staging.web.app, *.nile.ag). The token-injection paths at lines 129-199 do not check webView.url's host. The only guard is a skip while on Google OAuth or the Firebase auth handler."
+      },
+      {
+        "file": "client/ios/Nile/Nile/NileWebView.swift",
+        "line": 591,
+        "description": "The message handler does not inspect message.frameInfo or the sending origin."
+      },
+      {
+        "file": "client/ios/Nile/Nile/NileWebView.swift",
+        "line": 681,
+        "description": "The page-supplied filename is appended to the temp directory with no normalisation. Written bytes are limited to content starting with %PDF and the destination to the app temp directory."
+      },
+      {
+        "file": "client/market/src/hooks/useHandleLink.ts",
+        "line": 33,
+        "description": "Assigns window.location.href = fullUrl for isExternal targets, so the top-level wrapper webView can be navigated to a third-party site."
+      }
+    ],
+    "blockers": [
+      "Whether any principal below Nile admin staff (for example sellers, buyers or other tenants) can author or influence the URL of an Explore post or action link that the web app opens externally. The backend source for post authoring and its authorisation was not located, and it depends on deployed data and roles.",
+      "Which production URLs actually reach the in-app webView (production Explore content, Firebase remote config for the navigation flag). This is deployment data, not source.",
+      "Behaviour of the startDownload bridge when invoked from a cross-origin top-level page in a shipped build is not observed. No code was executed in this run."
+    ],
+    "validation_plan": {
+      "local": "In a simulator build with a test device token, load a controlled non-Nile HTTPS page in the wrapper. For example, point a staging Explore post URL at a test page and tap Read more. Confirm the page stays in-app and that localStorage.deviceToken and the storageChange postMessage are visible to the page. Call webkit.messageHandlers.startDownload.postMessage({url:<test PDF URL>,filename:'x.pdf'}) and confirm the fetch and share sheet occur. Use a dummy token and a test server only.",
+      "deployment": "Owner-observed: review the backend authoring path and roles for Explore posts and action URLs (who can set post.url), and the production Explore data for non-Nile, non-social, non-firebasestorage URLs. If only trusted Nile admins can author them, close as accepted risk or low. If sellers, buyers or any tenant can author them, upgrade to confirmed at medium. Remediation is a host allowlist in decidePolicyFor (open everything else in SFSafariViewController or the system browser), a message.frameInfo.securityOrigin and host check in the startDownload handler, filename sanitisation (lastPathComponent), and removing the '*' targetOrigin and injecting the token only on *.nile.ag hosts."
+    }
+  },
+  "separate_root_causes": [
+    "NileWebView.swift:681 writes a page-supplied filename via appendingPathComponent without stripping path separators, so a '..' filename could escape the temp directory. It is limited to a %PDF-prefixed body and the app sandbox. It shares the same entrypoint but is a distinct input-validation weakness."
+  ]
+}

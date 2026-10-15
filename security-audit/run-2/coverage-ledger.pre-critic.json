@@ -1,0 +1,539 @@
+[
+  {
+    "coverage_id": "client%2Fandroid%2Ftwa-manifest-production.json%23fingerprints::client%2Fwebsite%2Fpackage.json%23slack::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+    "canonical_refs": {
+      "surface": "client/android/twa-manifest-production.json#fingerprints",
+      "boundary": "client/website/package.json#slack",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "ATTACK-CLASSES.md#Access control"
+    },
+    "surface": "Android TWA/native config, website, freshtrader-software",
+    "boundary": "client/website/package.json#slack",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Access control",
+    "starting_paths": [
+      "client/android",
+      "client/freshmark-android",
+      "client/android-native",
+      "client/website",
+      "client/freshtrader-software"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+    "selected_companion_blocks": [
+      "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline",
+      "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Deep-link, callback, and navigation attack classes",
+      "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Universal moves",
+      "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+        "reason": "no native memory-unsafe code in client/ scope (Swift/Kotlin/TS)"
+      },
+      {
+        "block": "AI-AND-LLM.md#Core discipline",
+        "reason": "no model/tool-call boundary found in client/ recon"
+      },
+      {
+        "block": "PROTOCOLS-RPC-AND-MESSAGING.md#Core discipline",
+        "reason": "server-side RPC/broker boundary reviewed in run-1 (backend/)"
+      },
+      {
+        "block": "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline",
+        "reason": "server-side tenant isolation reviewed in run-1; client only renders"
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-c6",
+    "reviewed_paths": [
+      "client/website/package.json",
+      "client/website/firebase.json",
+      "client/android/twa-manifest-production.json",
+      "client/android-native/nile-farmer/app/src/main/AndroidManifest.xml",
+      "client/website/src/layouts/base-layout.astro"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-c6",
+        "reviewed_paths": [
+          "client/website/package.json",
+          "client/website/firebase.json",
+          "client/android/twa-manifest-production.json",
+          "client/android-native/nile-farmer/app/src/main/AndroidManifest.xml",
+          "client/website/src/layouts/base-layout.astro"
+        ],
+        "invariant": "No credential committed that lets repo readers act on shared channel; no XSS/redirect in website",
+        "method": "source",
+        "result": "Slack webhook committed; website and Android otherwise low surface",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "c6-website-slack-webhook-committed"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "client%2Fios%2FNile%2FNile%2FNileWebView.swift%23startDownload::client%2Fios%2FNile%2FNile%2FNileWebView.swift%23decidePolicyFor::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+    "canonical_refs": {
+      "surface": "client/ios/Nile/Nile/NileWebView.swift#startDownload",
+      "boundary": "client/ios/Nile/Nile/NileWebView.swift#decidePolicyFor",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "ATTACK-CLASSES.md#Access control"
+    },
+    "surface": "iOS WKWebView wrapper: navigation, JS bridge, universal links",
+    "boundary": "client/ios/Nile/Nile/NileWebView.swift#decidePolicyFor",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Access control",
+    "starting_paths": [
+      "client/ios/Nile/Nile",
+      "client/ios/Nile/ci_scripts"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+    "selected_companion_blocks": [
+      "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline",
+      "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Deep-link, callback, and navigation attack classes",
+      "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Webview and native-bridge attack classes",
+      "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Universal moves",
+      "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+        "reason": "no native memory-unsafe code in client/ scope (Swift/Kotlin/TS)"
+      },
+      {
+        "block": "AI-AND-LLM.md#Core discipline",
+        "reason": "no model/tool-call boundary found in client/ recon"
+      },
+      {
+        "block": "PROTOCOLS-RPC-AND-MESSAGING.md#Core discipline",
+        "reason": "server-side RPC/broker boundary reviewed in run-1 (backend/)"
+      },
+      {
+        "block": "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline",
+        "reason": "server-side tenant isolation reviewed in run-1; client only renders"
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-c4",
+    "reviewed_paths": [
+      "client/ios/Nile/Nile/NileWebView.swift",
+      "client/ios/Nile/Nile/NileApp.swift",
+      "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-c4",
+        "reviewed_paths": [
+          "client/ios/Nile/Nile/NileWebView.swift",
+          "client/ios/Nile/Nile/NileApp.swift",
+          "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh"
+        ],
+        "invariant": "Only first-party origins reach bridge/token; CI secrets not logged",
+        "method": "source",
+        "result": "Allow-by-default webview exposes bridge/token to third-party pages; CI echo leaks token",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "c4-ios-webview-thirdparty-page-reaches-bridge-and-token",
+      "c4-ios-ci-sentry-token-echoed-to-build-log"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "client%2Fios%2FREADME.md%23robotToken::client%2Fmarket%2Fgraphql.config.ts%23Authorization::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Cryptography%20and%20secrets",
+    "canonical_refs": {
+      "surface": "client/ios/README.md#robotToken",
+      "boundary": "client/market/graphql.config.ts#Authorization",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "ATTACK-CLASSES.md#Cryptography and secrets"
+    },
+    "surface": "Client-wide committed secrets, CI and build supply chain",
+    "boundary": "client/market/graphql.config.ts#Authorization",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Cryptography and secrets",
+    "starting_paths": [
+      "client/ios/README.md",
+      "client/ios-native/Farmer App/Nile Farmer/apollo-ios-gen-schema.sh",
+      "client/market/graphql.config.ts",
+      "client/ios/Nile/ci_scripts",
+      "client/market/Dockerfile",
+      "client/market/.scripts",
+      "client/website/.yarnrc.yml",
+      "client/website/package.json",
+      "client/market/package.json"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Cryptography and secrets",
+    "selected_companion_blocks": [
+      "SUPPLY-CHAIN-AND-RELEASE.md#Core discipline",
+      "SUPPLY-CHAIN-AND-RELEASE.md#CI and automation attack classes",
+      "SUPPLY-CHAIN-AND-RELEASE.md#Dependency and build-input attack classes",
+      "SUPPLY-CHAIN-AND-RELEASE.md#Universal moves",
+      "SUPPLY-CHAIN-AND-RELEASE.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+        "reason": "no native memory-unsafe code in client/ scope (Swift/Kotlin/TS)"
+      },
+      {
+        "block": "AI-AND-LLM.md#Core discipline",
+        "reason": "no model/tool-call boundary found in client/ recon"
+      },
+      {
+        "block": "PROTOCOLS-RPC-AND-MESSAGING.md#Core discipline",
+        "reason": "server-side RPC/broker boundary reviewed in run-1 (backend/)"
+      },
+      {
+        "block": "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline",
+        "reason": "server-side tenant isolation reviewed in run-1; client only renders"
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-c7",
+    "reviewed_paths": [
+      "client/ios/README.md",
+      "client/market/graphql.config.ts",
+      "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh",
+      "client/market/Dockerfile",
+      "client/market/src/mocks/catalogMarket.mock.ts"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-c7",
+        "reviewed_paths": [
+          "client/ios/README.md",
+          "client/market/graphql.config.ts",
+          "client/ios/Nile/ci_scripts/ci_post_xcodebuild.sh",
+          "client/market/Dockerfile",
+          "client/market/src/mocks/catalogMarket.mock.ts"
+        ],
+        "invariant": "No shared credential or capability URL committed; CI secrets not logged",
+        "method": "source",
+        "result": "Robot token copies, CI token echo, tokenised production URLs in mocks",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "c7-robot-token-client-copies",
+      "c4-ios-ci-sentry-token-echoed-to-build-log",
+      "c7-mock-prod-storage-capability-urls"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "client%2Fios-native%2FFarmer%20App%2FNile%20Farmer%2FShared%2FAuthManager.swift%23token::client%2Fios-native%2FFarmer%20App%2FNile%20Farmer%2FShared%2FKeychainHelper.swift%23save::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Cryptography%20and%20secrets",
+    "canonical_refs": {
+      "surface": "client/ios-native/Farmer App/Nile Farmer/Shared/AuthManager.swift#token",
+      "boundary": "client/ios-native/Farmer App/Nile Farmer/Shared/KeychainHelper.swift#save",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "ATTACK-CLASSES.md#Cryptography and secrets"
+    },
+    "surface": "iOS native Farmer app: token storage, X-Platform, offline data at rest, telemetry",
+    "boundary": "client/ios-native/Farmer App/Nile Farmer/Shared/KeychainHelper.swift#save",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Cryptography and secrets",
+    "starting_paths": [
+      "client/ios-native/Farmer App/Nile Farmer/Shared",
+      "client/ios-native/Farmer App/Nile Farmer/Auth",
+      "client/ios-native/Farmer App/Nile Farmer/Nile_FarmerApp.swift"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Cryptography and secrets",
+    "selected_companion_blocks": [
+      "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline",
+      "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Application-state and device-lifecycle attack classes",
+      "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Local IPC and exported-component attack classes",
+      "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Universal moves",
+      "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+        "reason": "no native memory-unsafe code in client/ scope (Swift/Kotlin/TS)"
+      },
+      {
+        "block": "AI-AND-LLM.md#Core discipline",
+        "reason": "no model/tool-call boundary found in client/ recon"
+      },
+      {
+        "block": "PROTOCOLS-RPC-AND-MESSAGING.md#Core discipline",
+        "reason": "server-side RPC/broker boundary reviewed in run-1 (backend/)"
+      },
+      {
+        "block": "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline",
+        "reason": "server-side tenant isolation reviewed in run-1; client only renders"
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "covered",
+    "agent_id": "hunter-c5",
+    "reviewed_paths": [
+      "client/ios-native/Farmer App/Nile Farmer/Shared/KeychainHelper.swift",
+      "client/ios-native/Farmer App/Nile Farmer/Shared/AuthManager.swift",
+      "client/ios-native/Farmer App/Nile Farmer/Shared/EnvironmentManager.swift",
+      "client/ios-native/Farmer App/Nile Farmer/Shared/APIService.swift"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-c5",
+        "reviewed_paths": [
+          "client/ios-native/Farmer App/Nile Farmer/Shared/KeychainHelper.swift",
+          "client/ios-native/Farmer App/Nile Farmer/Shared/AuthManager.swift",
+          "client/ios-native/Farmer App/Nile Farmer/Shared/EnvironmentManager.swift",
+          "client/ios-native/Farmer App/Nile Farmer/Shared/APIService.swift"
+        ],
+        "invariant": "Token storage, X-Platform, offline data, telemetry do not expose data across a boundary",
+        "method": "source",
+        "result": "Hygiene/hardening only; server enforces",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "client%2Fmarket%2Fsrc%2Fcomponents%2FForm.tsx%23dangerouslySetInnerHTML::client%2Fmarket%2Fsrc%2Fcomponents%2FForm.tsx%23form.description::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Injection",
+    "canonical_refs": {
+      "surface": "client/market/src/components/Form.tsx#dangerouslySetInnerHTML",
+      "boundary": "client/market/src/components/Form.tsx#form.description",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "ATTACK-CLASSES.md#Injection"
+    },
+    "surface": "Market web DOM sinks and navigation from server data",
+    "boundary": "client/market/src/components/Form.tsx#form.description",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Injection",
+    "starting_paths": [
+      "client/market/src/components",
+      "client/market/src/screens/Explore",
+      "client/market/src/hooks/useHandleLink.ts",
+      "client/market/src/utils/getNavigationTarget.ts"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Injection",
+    "selected_companion_blocks": [
+      "CLIENT-SIDE.md#Core discipline",
+      "CLIENT-SIDE.md#DOM and object-state attack classes",
+      "CLIENT-SIDE.md#UI-redress and navigation attack classes",
+      "CLIENT-SIDE.md#Universal moves",
+      "CLIENT-SIDE.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+        "reason": "no native memory-unsafe code in client/ scope (Swift/Kotlin/TS)"
+      },
+      {
+        "block": "AI-AND-LLM.md#Core discipline",
+        "reason": "no model/tool-call boundary found in client/ recon"
+      },
+      {
+        "block": "PROTOCOLS-RPC-AND-MESSAGING.md#Core discipline",
+        "reason": "server-side RPC/broker boundary reviewed in run-1 (backend/)"
+      },
+      {
+        "block": "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline",
+        "reason": "server-side tenant isolation reviewed in run-1; client only renders"
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-c1",
+    "reviewed_paths": [
+      "client/market/src/components/Form.tsx",
+      "client/market/src/screens/Explore/Post.tsx",
+      "client/market/src/hooks/useHandleLink.ts",
+      "backend/go/api/internal/form/field/field.go"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-c1",
+        "reviewed_paths": [
+          "client/market/src/components/Form.tsx",
+          "client/market/src/screens/Explore/Post.tsx",
+          "client/market/src/hooks/useHandleLink.ts",
+          "backend/go/api/internal/form/field/field.go"
+        ],
+        "invariant": "User text must not reach dangerouslySetInnerHTML in another session",
+        "method": "source",
+        "result": "Unescaped profile names embedded in form descriptions, rendered as HTML",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "c1-market-form-description-stored-xss-profile-name"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "client%2Fmarket%2Fsrc%2Fscreens%2FFormScreenLauncher.tsx%23params::client%2Fmarket%2Fsrc%2Fcomponents%2FFileEditNew.tsx%23upload::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Resource%20and%20file%20handling",
+    "canonical_refs": {
+      "surface": "client/market/src/screens/FormScreenLauncher.tsx#params",
+      "boundary": "client/market/src/components/FileEditNew.tsx#upload",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "ATTACK-CLASSES.md#Resource and file handling"
+    },
+    "surface": "Market web data layer: query params, Firestore chat, Storage upload, hosting config",
+    "boundary": "client/market/src/components/FileEditNew.tsx#upload",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Resource and file handling",
+    "starting_paths": [
+      "client/market/src/screens/FormScreenLauncher.tsx",
+      "client/market/src/screens/Chat",
+      "client/market/src/components/FileEditNew.tsx",
+      "client/market/src/utils/sanitizeFileType.ts",
+      "client/market/firebase.json",
+      "client/market/Dockerfile",
+      "client/market/index.html",
+      "client/market/src/serviceWorker.ts"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Resource and file handling",
+    "selected_companion_blocks": [
+      "CLIENT-SIDE.md#Core discipline",
+      "CLIENT-SIDE.md#Cross-origin messaging and network attack classes",
+      "CLIENT-SIDE.md#Service-worker and browser-storage attack classes",
+      "CLIENT-SIDE.md#Universal moves",
+      "CLIENT-SIDE.md#Validation rules"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+        "reason": "no native memory-unsafe code in client/ scope (Swift/Kotlin/TS)"
+      },
+      {
+        "block": "AI-AND-LLM.md#Core discipline",
+        "reason": "no model/tool-call boundary found in client/ recon"
+      },
+      {
+        "block": "PROTOCOLS-RPC-AND-MESSAGING.md#Core discipline",
+        "reason": "server-side RPC/broker boundary reviewed in run-1 (backend/)"
+      },
+      {
+        "block": "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline",
+        "reason": "server-side tenant isolation reviewed in run-1; client only renders"
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-c3",
+    "reviewed_paths": [
+      "client/market/src/components/FileViewer.tsx",
+      "client/market/src/components/FileEditNew.tsx",
+      "client/market/src/screens/Chat/useChat.ts",
+      "client/market/firebase.json"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-c3",
+        "reviewed_paths": [
+          "client/market/src/components/FileViewer.tsx",
+          "client/market/src/components/FileEditNew.tsx",
+          "client/market/src/screens/Chat/useChat.ts",
+          "client/market/firebase.json"
+        ],
+        "invariant": "Stored values and uploads cannot execute script or overwrite others' data",
+        "method": "source",
+        "result": "FileViewer iframe src unvalidated; other leads cleared or rules-dependent",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "c3-fileviewer-iframe-unvalidated-src"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "client%2Fmarket%2Fsrc%2Fservices%2Fauth.ts%23getToken::client%2Fmarket%2Fsrc%2Fservices%2Fauth.ts%23robotToken::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+    "canonical_refs": {
+      "surface": "client/market/src/services/auth.ts#getToken",
+      "boundary": "client/market/src/services/auth.ts#robotToken",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "ATTACK-CLASSES.md#Access control"
+    },
+    "surface": "Market web auth, robot-token mode, PDF URL builders, Sentry URL leakage, storage",
+    "boundary": "client/market/src/services/auth.ts#robotToken",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Access control",
+    "starting_paths": [
+      "client/market/src/services",
+      "client/market/src/hooks/useRobotToken.ts",
+      "client/market/src/utils",
+      "client/market/src/components/AuthCheck.tsx",
+      "client/market/graphql.config.ts",
+      "client/market/src/screens/Debug"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+    "selected_companion_blocks": [
+      "CLIENT-SIDE.md#Core discipline",
+      "CLIENT-SIDE.md#Service-worker and browser-storage attack classes",
+      "CLIENT-SIDE.md#Cross-site information leak classes",
+      "CLIENT-SIDE.md#Universal moves",
+      "CLIENT-SIDE.md#Validation rules",
+      "WEB-PROTOCOL-AND-AUTH.md#API-key and mTLS attack classes"
+    ],
+    "excluded_blocks": [
+      {
+        "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+        "reason": "no native memory-unsafe code in client/ scope (Swift/Kotlin/TS)"
+      },
+      {
+        "block": "AI-AND-LLM.md#Core discipline",
+        "reason": "no model/tool-call boundary found in client/ recon"
+      },
+      {
+        "block": "PROTOCOLS-RPC-AND-MESSAGING.md#Core discipline",
+        "reason": "server-side RPC/broker boundary reviewed in run-1 (backend/)"
+      },
+      {
+        "block": "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline",
+        "reason": "server-side tenant isolation reviewed in run-1; client only renders"
+      }
+    ],
+    "prior_status": "none",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "hunter-c2",
+    "reviewed_paths": [
+      "client/market/src/services/auth.ts",
+      "client/market/src/components/AuthCheck.tsx",
+      "client/market/graphql.config.ts",
+      "client/market/src/utils/get-pdf-url.ts"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "hunter-c2",
+        "reviewed_paths": [
+          "client/market/src/services/auth.ts",
+          "client/market/src/components/AuthCheck.tsx",
+          "client/market/graphql.config.ts",
+          "client/market/src/utils/get-pdf-url.ts"
+        ],
+        "invariant": "Client auth/robot-token handling grants no privilege to lower-trust visitor",
+        "method": "source",
+        "result": "Robot-mode is UI only; committed token in graphql.config.ts (same root cause as backend)",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "c7-robot-token-client-copies"
+    ],
+    "unresolved": []
+  }
+]

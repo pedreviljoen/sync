@@ -1,0 +1,61 @@
+{
+  "decision": "rejected",
+  "record": {
+    "fingerprint": "c7-mock-prod-storage-capability-urls",
+    "verdict": "rejected",
+    "title": "Mock and Storybook fixtures embed nile-production Firebase Storage download URLs with access tokens",
+    "description": "I confirmed the occurrences. Two mock files and two story files contain firebasestorage.googleapis.com download URLs for the nile-production.appspot.com bucket. Each carries an ?alt=media&token=... query and points at images/<uuid>.jpg or .jpeg. Token values are not reproduced here. The objects are product photos: the mock context is 'Fresh lemons from local farms.' catalog and market product images. The two UUIDs (3d9d540e... and b8c8b277...) are reused across every occurrence. The files are imported only by *.stories.tsx and *.test.tsx files, never by application code, and no production source imports them. A Firebase download token is a capability URL, and these URLs grant read access to those two image objects. The images are marketplace product photos, which are customer-facing content the app already serves to buyers. Nothing in the source shows them to be sensitive. The residual issue is hygiene: production URLs are hardcoded in test fixtures.",
+    "claimed_root_cause": "Production Firebase Storage URLs with live-looking download tokens were hardcoded in mock and story fixtures committed to the repository, so anyone with source access holds read capability URLs for objects in the production bucket.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "client/market/src/mocks/buyersMarket.mock.ts",
+        "line": 56,
+        "scope": "mockProduct.info.images (also line 61, marketImages[].image)",
+        "description": "Hardcoded nile-production Firebase Storage URL with an alt=media token query. Exported as a test and Storybook fixture."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/market/src/mocks/catalogMarket.mock.ts",
+        "line": 81,
+        "scope": "catalogMarketResult product images (also line 86)",
+        "description": "Same product image object URL, repeated in the catalog fixture. Imported only by CatalogMarket *.stories.tsx files."
+      },
+      {
+        "kind": "sink",
+        "file": "client/market/src/components/Files.stories.tsx",
+        "line": 14,
+        "scope": "Default story args.files (also line 15; FileViewer.stories.tsx line 13)",
+        "description": "The URL is rendered by Storybook, which is not part of the production vite build. The only effect is read access to a product photo for anyone holding the URL. This is not a meaningful cross-boundary impact."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "client/market/src/mocks/buyersMarket.mock.ts",
+        "line": 56,
+        "description": "The URL is in a mock product whose description is 'Fresh lemons from local farms.', so the content is a product photo. Line 61 repeats it."
+      },
+      {
+        "file": "client/market/src/mocks/catalogMarket.mock.ts",
+        "line": 81,
+        "description": "The same URL is used in the catalog fixture. Line 86 repeats it."
+      },
+      {
+        "file": "client/market/src/components/Files.stories.tsx",
+        "line": 14,
+        "description": "Story fixture with the second image URL. Line 15 repeats it, and client/market/src/components/FileViewer.stories.tsx line 13 uses it too."
+      },
+      {
+        "file": "client/market/src/components/Market/ProductRow/ProductRow.test.tsx",
+        "line": 4,
+        "description": "The mocks are imported only from *.stories.tsx and *.test.tsx files (for example Market/ProductRow/ProductRow.test.tsx, MarketGroupView.test.tsx, BuyersMarket/StockTracker.stories.tsx). No application source imports them, so they are not reachable from the vite app entry or bundle."
+      },
+      {
+        "file": "client/market/src/utils/get-firebase-url-filename.ts",
+        "line": 18,
+        "description": "This is a JSDoc example URL with a placeholder token and bucket. It is not a real URL."
+      }
+    ],
+    "reason": "Source refutes meaningful impact. The tokenised URLs appear only in test and Storybook fixtures, and no application code imports them, so they are not shipped in production builds. The objects are ordinary marketplace product images, content the app already shows to buyers, with no sensitive data in evidence. A source reader gains nothing beyond access to two product photos. Treat this as an informational hygiene note: replace the production URLs with placeholder or local assets. Rotating the tokens is optional and would be a deployment action. Whether the tokens are still live cannot be established from source. A quick owner check of the Firebase console can confirm the two objects are public catalogue images."
+  }
+}

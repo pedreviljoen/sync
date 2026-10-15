@@ -1,0 +1,84 @@
+{
+  "decision": "needs_validation",
+  "record": {
+    "verdict": "needs_validation",
+    "fingerprint": "nilocloud/shared-robot-token-webhook-unblock",
+    "title": "nilocloud: one NILO_ROBOT_TOKEN gates both inbound Sentry/Grafana webhooks (token in URL query) and the browser-callable consumer-unblock action",
+    "description": "authMiddleware in nilocloud uses a single env secret, NILO_ROBOT_TOKEN, for two different purposes. For /v1/webhooks/* it is read from the query string (?robotToken=), so it sits in webhook URLs configured in third-party tools (Sentry, Grafana) and potentially in request logs. For /v1/events/unblock it is read from 'Authorization: Bearer robotToken=<token>', and the endpoint is called directly from a browser (Grafana table action, CORS allow-origin https://obs.nile.ag). A successful call publishes a consumer-unblock Pub/Sub job. The job handler then advances the named consumer's cursor, which permanently skips the event at expected_cursor+1, and posts a Slack notice. Any holder of the webhook URL (Sentry/Grafana config readers, log readers) therefore also holds authority to skip events in ledger, trader, administrator and other consumers. Source review shows no per-purpose credential separation and a non-constant-time compare. TrimPrefix also means a bare token without the 'Bearer robotToken=' prefix is accepted. Whether this crosses a real trust boundary depends on who can read the Sentry/Grafana webhook configuration, the Grafana action config, and the Cloud Run request logs. Those are deployment facts not visible in source. Same-principal ops staff holding both capabilities would not be a finding. Hardening-grade unless the token is shown to leak to a lower-trust party.",
+    "claimed_root_cause": "A single shared static secret (NILO_ROBOT_TOKEN) authorizes both low-privilege inbound webhook delivery (credential carried in a URL query string) and a state-changing operational action (consumer unblock/skip), with no scoping, rotation separation or constant-time comparison.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "core/backend/go/nilocloud/internal/handlers.go",
+        "line": 23,
+        "scope": "Resolver.ServeHTTP",
+        "description": "Route /v1/events/unblock (all methods, so OPTIONS preflight works) wrapped in grafanaCorsMiddleware(authMiddleware(unblockConsumerHandler)); reachable from a browser on obs.nile.ag. Webhook routes at lines 9-10 use the same authMiddleware."
+      },
+      {
+        "kind": "propagation",
+        "file": "core/backend/go/nilocloud/internal/middleware.go",
+        "line": 40,
+        "scope": "authMiddleware",
+        "description": "/v1/webhooks* branch (lines 40-53): token taken from URL query robotToken and compared with != to NILO_ROBOT_TOKEN; empty env returns 500."
+      },
+      {
+        "kind": "propagation",
+        "file": "core/backend/go/nilocloud/internal/middleware.go",
+        "line": 55,
+        "scope": "authMiddleware",
+        "description": "/v1/events* branch (lines 55-67): the same env var is compared (non-constant-time) against the Authorization header after TrimPrefix 'Bearer robotToken='; a bare token also passes. No scoping by purpose."
+      },
+      {
+        "kind": "propagation",
+        "file": "core/backend/go/nilocloud/internal/grafana.go",
+        "line": 23,
+        "scope": "Resolver.unblockConsumerHandler / handleUnblockConsumer",
+        "description": "After auth, service, consumer_id and expected_cursor are taken from the query string (lines 36-52) with no further authorization or allow-list; calls GrafanaResolver().UnblockConsumer."
+      },
+      {
+        "kind": "sink",
+        "file": "core/backend/go/nilocloud/internal/grafana/handlers.go",
+        "line": 154,
+        "scope": "Resolver.UnblockConsumer",
+        "description": "Publishes a consumer-unblock UnblockMessage to Pub/Sub (line 165). The job handler in internal/cloud.go (lines 126-155) then calls unblock<Service>Consumer, which skips the event, and notifyEventSkipped posts to Slack."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "core/backend/go/nilocloud/internal/middleware.go",
+        "line": 41,
+        "description": "Webhook credential read from URL query parameter robotToken."
+      },
+      {
+        "file": "core/backend/go/nilocloud/internal/middleware.go",
+        "line": 49,
+        "description": "Plain != comparison on the secret (not subtle.ConstantTimeCompare)."
+      },
+      {
+        "file": "core/backend/go/nilocloud/internal/middleware.go",
+        "line": 62,
+        "description": "TrimPrefix on 'Bearer robotToken=' does not enforce the prefix; the same NILO_ROBOT_TOKEN value authorizes the unblock action."
+      },
+      {
+        "file": "core/backend/go/nilocloud/internal/middleware.go",
+        "line": 13,
+        "description": "CORS allows only https://obs.nile.ag. This is a browser-origin constraint, not an authentication control, and it confirms the endpoint is called from browser JavaScript (so the token is held in Grafana action config)."
+      },
+      {
+        "file": "core/backend/go/nilocloud/internal/handlers.go",
+        "line": 13,
+        "description": "Sibling Slack routes (events/slack, commands/horus, webhooks/slack/actions) are not wrapped by authMiddleware; they presumably use their own Slack signature checks, which were not reviewed here and are out of scope for this candidate."
+      }
+    ],
+    "blockers": [
+      "Who can read the Sentry/Grafana webhook URL, the Grafana action configuration (which holds the unblock bearer token), and Cloud Run request logs (which may record the query string) is not visible in source.",
+      "It is unknown whether Sentry/Grafana admins or log readers already hold equivalent operational authority to skip consumer events. If they do, this is same-principal authority and not a boundary violation.",
+      "Network exposure and ingress of the nilocloud Cloud Run service (public or restricted) is not in source."
+    ],
+    "validation_plan": {
+      "local": "Source-only: confirm in a unit test (owner-run, no network) that authMiddleware accepts a bare token on /v1/events/unblock and that no other check exists between the middleware and pubsub.SendMessage. Grep deployment manifests for where NILO_ROBOT_TOKEN is injected and whether the same secret is used for any other service.",
+      "deployment": "Owner-observed, non-destructive: (1) list who has view access to the Sentry integration webhook URL and the Grafana contact point and table-action configuration; (2) check whether Cloud Run request logs for nilocloud record query strings and who has logging.viewer on that project; (3) check Cloud Run ingress and IAM for the service. If a lower-trust party (vendor, broad log readers, non-ops Grafana editors) can read the token, upgrade to a confirmed medium finding. Otherwise downgrade to hardening: use separate per-purpose tokens, move the webhook token into a header, and use subtle.ConstantTimeCompare."
+    }
+  },
+  "separate_root_causes": []
+}

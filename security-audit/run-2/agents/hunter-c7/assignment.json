@@ -1,0 +1,64 @@
+{
+  "agent_id": "hunter-c7",
+  "units": [
+    {
+      "coverage_id": "client%2Fios%2FREADME.md%23robotToken::client%2Fmarket%2Fgraphql.config.ts%23Authorization::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Cryptography%20and%20secrets",
+      "canonical_refs": {
+        "surface": "client/ios/README.md#robotToken",
+        "boundary": "client/market/graphql.config.ts#Authorization",
+        "subsystem": "profile/quick/all-in-scope-subsystems",
+        "attack_class": "ATTACK-CLASSES.md#Cryptography and secrets"
+      },
+      "surface": "Client-wide committed secrets, CI and build supply chain",
+      "boundary": "client/market/graphql.config.ts#Authorization",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Cryptography and secrets",
+      "starting_paths": [
+        "client/ios/README.md",
+        "client/ios-native/Farmer App/Nile Farmer/apollo-ios-gen-schema.sh",
+        "client/market/graphql.config.ts",
+        "client/ios/Nile/ci_scripts",
+        "client/market/Dockerfile",
+        "client/market/.scripts",
+        "client/website/.yarnrc.yml",
+        "client/website/package.json",
+        "client/market/package.json"
+      ],
+      "ordinary_attack_class_block": "ATTACK-CLASSES.md#Cryptography and secrets",
+      "selected_companion_blocks": [
+        "SUPPLY-CHAIN-AND-RELEASE.md#Core discipline",
+        "SUPPLY-CHAIN-AND-RELEASE.md#CI and automation attack classes",
+        "SUPPLY-CHAIN-AND-RELEASE.md#Dependency and build-input attack classes",
+        "SUPPLY-CHAIN-AND-RELEASE.md#Universal moves",
+        "SUPPLY-CHAIN-AND-RELEASE.md#Validation rules"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+          "reason": "no native memory-unsafe code in client/ scope (Swift/Kotlin/TS)"
+        },
+        {
+          "block": "AI-AND-LLM.md#Core discipline",
+          "reason": "no model/tool-call boundary found in client/ recon"
+        },
+        {
+          "block": "PROTOCOLS-RPC-AND-MESSAGING.md#Core discipline",
+          "reason": "server-side RPC/broker boundary reviewed in run-1 (backend/)"
+        },
+        {
+          "block": "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline",
+          "reason": "server-side tenant isolation reviewed in run-1; client only renders"
+        }
+      ],
+      "prior_status": "none",
+      "attempts": [],
+      "wave": 1,
+      "status": "in_progress",
+      "agent_id": "hunter-c7",
+      "reviewed_paths": [],
+      "local_checks": [],
+      "result_fingerprints": [],
+      "unresolved": []
+    }
+  ]
+}

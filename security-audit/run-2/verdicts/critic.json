@@ -1,0 +1,268 @@
+{
+  "missing_units": [
+    {
+      "surface": "market offline mutation outbox, IndexedDB store and queue replay across auth/profile switch",
+      "boundary": "client/market/src/services/outbox.ts#replay",
+      "subsystem": "market offline/PWA state",
+      "attack_class": "Business logic",
+      "starting_paths": [
+        "client/market/src/services/outbox.ts",
+        "client/market/src/services/idb-store.ts",
+        "client/market/src/hooks/useMutationQueueProcessor.ts",
+        "client/market/src/hooks/useOfflineMutation.ts",
+        "client/market/src/hooks/useOfflineQuery.ts",
+        "client/market/src/hooks/useSwitchProfile.ts"
+      ],
+      "selected_companion_blocks": [
+        "CLIENT-SIDE.md#Service-worker and browser-storage attack classes",
+        "WEB-PROTOCOL-AND-AUTH.md#Browser-session attack classes"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+          "reason": "no memory-unsafe code"
+        }
+      ],
+      "reason": "source-backed coverage gap"
+    },
+    {
+      "surface": "ios-native SyncEngine/OfflineQueue replay, cached data, per-user isolation on logout/profile/environment switch",
+      "boundary": "client/ios-native/Farmer App/Nile Farmer/Shared/SyncEngine.swift#replay",
+      "subsystem": "ios-native offline sync",
+      "attack_class": "Business logic",
+      "starting_paths": [
+        "client/ios-native/Farmer App/Nile Farmer/Shared/SyncEngine.swift",
+        "client/ios-native/Farmer App/Nile Farmer/Shared/OfflineQueue.swift",
+        "client/ios-native/Farmer App/Nile Farmer/Shared/PendingOp.swift",
+        "client/ios-native/Farmer App/Nile Farmer/Shared/OfflineDataController.swift",
+        "client/ios-native/Farmer App/Nile Farmer/Shared/FormCache.swift",
+        "client/ios-native/Farmer App/Nile Farmer/Shared/EnvironmentManager.swift",
+        "client/ios-native/Farmer App/Nile Farmer/Shared/AuthManager.swift"
+      ],
+      "selected_companion_blocks": [
+        "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Application-state and device-lifecycle attack classes"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+          "reason": "no memory-unsafe code"
+        }
+      ],
+      "reason": "source-backed coverage gap"
+    },
+    {
+      "surface": "market service worker/PWA caching, notification URL handling, web manifests",
+      "boundary": "client/market/src/serviceWorker.ts#fetch-cache",
+      "subsystem": "market service worker",
+      "attack_class": "Feature abuse and data leakage",
+      "starting_paths": [
+        "client/market/src/serviceWorker.ts",
+        "client/market/src/services/serviceWorkerUpdater.ts",
+        "client/market/public/nile-manifest.json",
+        "client/market/public/freshmark-manifest.json",
+        "client/market/public/villa-manifest.json",
+        "client/market/public/inputs-manifest.json",
+        "client/market/firebase.json"
+      ],
+      "selected_companion_blocks": [
+        "CLIENT-SIDE.md#Cross-origin messaging and network attack classes",
+        "CLIENT-SIDE.md#Service-worker and browser-storage attack classes"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "RESOURCE-EXHAUSTION.md#Core discipline",
+          "reason": "no server surface"
+        }
+      ],
+      "reason": "source-backed coverage gap"
+    },
+    {
+      "surface": "market form field rendering and dynamic server-driven field/option/label values",
+      "boundary": "client/market/src/components/DynamicInputField/fieldRenderers.tsx#render",
+      "subsystem": "market dynamic forms",
+      "attack_class": "Injection",
+      "starting_paths": [
+        "client/market/src/components/DynamicInputField/fieldRenderers.tsx",
+        "client/market/src/components/DynamicInputField/DynamicInputField.tsx",
+        "client/market/src/components/Form/FormField.tsx",
+        "client/market/src/components/Form/FormGroups.tsx",
+        "client/market/src/components/Form/FormSets.tsx",
+        "client/market/src/components/DynamicFieldGroups.tsx",
+        "client/market/src/hooks/useSubmitForm.ts",
+        "client/market/src/utils/form.ts"
+      ],
+      "selected_companion_blocks": [
+        "CLIENT-SIDE.md#DOM and object-state attack classes"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "AI-AND-LLM.md#Core discipline",
+          "reason": "no model boundary"
+        }
+      ],
+      "reason": "source-backed coverage gap"
+    },
+    {
+      "surface": "market per-screen rendering of other-user-controlled strings (notes, names, descriptions, addresses, chat, notifications, quotes, orders, customers)",
+      "boundary": "client/market/src/screens/Notifications",
+      "subsystem": "market data rendering",
+      "attack_class": "Injection",
+      "starting_paths": [
+        "client/market/src/screens/Notifications",
+        "client/market/src/screens/Chat/Messages.tsx",
+        "client/market/src/screens/Chat/MessageBox.tsx",
+        "client/market/src/screens/Orders",
+        "client/market/src/screens/Quotes",
+        "client/market/src/screens/Customers/Customers.tsx",
+        "client/market/src/components/Address.tsx",
+        "client/market/src/components/ActionList.tsx",
+        "client/market/src/screens/Explore/PostContent.tsx"
+      ],
+      "selected_companion_blocks": [
+        "CLIENT-SIDE.md#DOM and object-state attack classes"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "DATA-ISOLATION.md#Core discipline",
+          "reason": "server-side, run-1"
+        }
+      ],
+      "reason": "source-backed coverage gap"
+    },
+    {
+      "surface": "iOS wrapper token/bridge injection into webview localStorage and push token sync, native auth",
+      "boundary": "client/ios/Nile/Nile/NileWebView.swift#appToken",
+      "subsystem": "ios wrapper auth bridge",
+      "attack_class": "Access control",
+      "starting_paths": [
+        "client/ios/Nile/Nile/NileWebView.swift",
+        "client/ios/Nile/Nile/Auth/Auth.swift",
+        "client/ios/Nile/Nile/AppViewModel.swift",
+        "client/ios/Nile/Nile/NileApp.swift",
+        "client/ios/Nile/Nile/Swan.swift",
+        "client/market/src/components/AuthCheck.tsx",
+        "client/market/src/screens/Auth/useSyncPushToken.ts",
+        "client/market/src/screens/Auth/useAuthProvider.ts"
+      ],
+      "selected_companion_blocks": [
+        "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Webview and native-bridge attack classes",
+        "WEB-PROTOCOL-AND-AUTH.md#Browser-session attack classes"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+          "reason": "no memory-unsafe code"
+        }
+      ],
+      "reason": "source-backed coverage gap"
+    },
+    {
+      "surface": "market file download/export and URL-to-filename helpers, CSV/JSON export (formula injection), PDF viewers",
+      "boundary": "client/market/src/utils/download-file.ts#download",
+      "subsystem": "market file handling",
+      "attack_class": "Resource and file handling",
+      "starting_paths": [
+        "client/market/src/utils/download-file.ts",
+        "client/market/src/utils/download-csv.ts",
+        "client/market/src/utils/export-json.ts",
+        "client/market/src/utils/get-pdf-url.ts",
+        "client/market/src/utils/get-firebase-url-filename.ts",
+        "client/market/src/utils/get-gcs-url-filename.ts",
+        "client/market/src/hooks/useHandleFileDownload.ts",
+        "client/market/src/components/DownloadButton.tsx",
+        "client/market/src/components/DownloadPdfButton.tsx",
+        "client/market/src/components/FileViewer.tsx"
+      ],
+      "selected_companion_blocks": [
+        "CLIENT-SIDE.md#DOM and object-state attack classes",
+        "CLIENT-SIDE.md#Cross-origin messaging and network attack classes"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "RESOURCE-EXHAUSTION.md#Core discipline",
+          "reason": "no server surface"
+        }
+      ],
+      "reason": "source-backed coverage gap"
+    },
+    {
+      "surface": "market custom-scheme/query and WhatsApp entry handlers, route/return-path redirects (open redirect)",
+      "boundary": "client/market/src/hooks/useHandleCustomSchemeAndQuery.ts#query",
+      "subsystem": "market routing/deep links",
+      "attack_class": "Access control",
+      "starting_paths": [
+        "client/market/src/hooks/useHandleCustomSchemeAndQuery.ts",
+        "client/market/src/providers/WhatsAppEntryProvider.tsx",
+        "client/market/src/hooks/useReturnPath.ts",
+        "client/market/src/hooks/useBaseRedirect.tsx",
+        "client/market/src/hooks/useNavigationHandlers.ts",
+        "client/market/src/utils/getNavigationTarget.ts",
+        "client/market/src/Router.tsx",
+        "client/market/src/SubRoutes.tsx",
+        "client/market/src/screens/Auth/Login.tsx"
+      ],
+      "selected_companion_blocks": [
+        "CLIENT-SIDE.md#UI-redress and navigation attack classes",
+        "WEB-PROTOCOL-AND-AUTH.md#Browser-session attack classes"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "AI-AND-LLM.md#Core discipline",
+          "reason": "no model boundary"
+        }
+      ],
+      "reason": "source-backed coverage gap"
+    },
+    {
+      "surface": "ios-native Firebase image upload and offline image staging, Dispatch/Count screens consuming server strings",
+      "boundary": "client/ios-native/Farmer App/Nile Farmer/Shared/FirebaseImageUpload.swift#upload",
+      "subsystem": "ios-native upload",
+      "attack_class": "Resource and file handling",
+      "starting_paths": [
+        "client/ios-native/Farmer App/Nile Farmer/Shared/FirebaseImageUpload.swift",
+        "client/ios-native/Farmer App/Nile Farmer/Shared/OfflineFormImageStaging.swift",
+        "client/ios-native/Farmer App/Nile Farmer/Shared/OfflineStagedFormFieldResolver.swift",
+        "client/ios-native/Farmer App/Nile Farmer/Shared/APIService.swift",
+        "client/ios-native/Farmer App/Nile Farmer/Dispatch/DispatchEditScreen.swift"
+      ],
+      "selected_companion_blocks": [
+        "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Application-state and device-lifecycle attack classes"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+          "reason": "no memory-unsafe code"
+        }
+      ],
+      "reason": "source-backed coverage gap"
+    },
+    {
+      "surface": "market Firestore chat client paths/Debug screen/auth bootstrap and role/profile gating from client claims",
+      "boundary": "client/market/src/screens/Chat/useChat.ts#firestore",
+      "subsystem": "market chat and role gating",
+      "attack_class": "Access control",
+      "starting_paths": [
+        "client/market/src/screens/Chat/useChat.ts",
+        "client/market/src/screens/Chat/ChatsList.tsx",
+        "client/market/src/services/firebase.ts",
+        "client/market/src/services/urql.ts",
+        "client/market/src/hooks/useAccess.ts",
+        "client/market/src/hooks/useUser.tsx",
+        "client/market/src/screens/Debug/Debug.tsx"
+      ],
+      "selected_companion_blocks": [
+        "WEB-PROTOCOL-AND-AUTH.md#Browser-session attack classes"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "DATA-ISOLATION.md#Core discipline",
+          "reason": "server-side, run-1"
+        }
+      ],
+      "reason": "source-backed coverage gap"
+    }
+  ],
+  "reassign_ids": [],
+  "resolved_prior_leads": [],
+  "stop": false
+}

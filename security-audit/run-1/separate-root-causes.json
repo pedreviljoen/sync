@@ -1,0 +1,72 @@
+[
+  {
+    "fp": "auth/hardcoded-shared-robot-token",
+    "sep": [
+      "backend/functions/firebase/functions/src/pdf.ts:~30 appends the robot token as a query parameter to a caller-supplied url before the headless browser navigates to it. If the caller can choose the host, the token is sent to an attacker-controlled server (token exfiltration and SSRF-like). Authentication on that function was not verified in this pass.",
+      "backend/go/auth/auth.go:31 hardcodes a second shared secret, potatoesSaToken (same pattern, narrower scope: export query only)."
+    ]
+  },
+  {
+    "fp": "auth/potatoessa-scope-first-field-only",
+    "sep": [
+      "The PotatoesSA and robot bearer tokens are hardcoded constants in backend/go/auth/auth.go (lines 30-31), which is a secret committed to source. This is a distinct credential-exposure root cause."
+    ]
+  },
+  {
+    "fp": "backend/functions/firebase/functions/src/pdf.ts-generatePdf-url-ssrf-token-exfil",
+    "sep": [
+      "Static robot bearer token (and potatoesSa token) hardcoded in source: backend/go/auth/auth.go:30, backend/functions/firebase/functions/src/pdf.ts:30, client/market/graphql.config.ts:13, backend/loadtests/locust_testing.py:10, client/ios/README.md:10. Compromise of the repo or any client leaks full robot credentials.",
+      "pdf.ts:95 name parameter is unescaped HTML in the Puppeteer footerTemplate (low-impact HTML injection into the generated PDF footer; no header injection because Node rejects CR/LF)."
+    ]
+  },
+  {
+    "fp": "nilocloud/subscriptions-auth-noop",
+    "sep": [
+      "backend/go/nilocloud/internal/middleware.go:73-83: /v1/mache branch reads ROBOT_TOKEN from env and does not reject when it is empty (an empty bearer would match an unset token); also uses non-constant-time compare. Likewise /v1/webhooks and /v1/events use non-constant-time comparison; and /v1/webhooks takes the token from the query string. Worth separate review.",
+      "backend/go/nilocloud/internal/handlers.go:13-15,26-28: Slack and Gerrit routes are registered without authMiddleware; the Gerrit checks routes show no source-visible auth in the handler registration (not verified in handlers)."
+    ]
+  },
+  {
+    "fp": "harvester-potatoessa-unzip-path-traversal",
+    "sep": [
+      "downloadZipFile (methods.go:74-82) fetches a provider-supplied URL with no scheme or host allowlist, an SSRF-like fetch of a URL from the third-party response. Low value because the response is not returned to the attacker.",
+      "removeFiles (methods.go:141-150) returns after deleting the first map entry, so extracted temp files are left behind. This is a hygiene issue, not a security finding."
+    ]
+  },
+  {
+    "fp": "api-graphql-introspection-cycle-amplification-unauth",
+    "sep": [
+      "Public-operation allowlist in auth/auth.go:422 is keyed on the client-supplied operation name, so any selection set (not just signup or token validation fields) is admitted for unauthenticated callers when named Signup, ValidateCurrentToken or SignUp. This is an auth-boundary weakness whose real impact depends on per-resolver authorization, which I did not review."
+    ]
+  },
+  {
+    "fp": "H5-signup-admin-selfassign",
+    "sep": [
+      "checkUser (backend/go/auth/auth.go:555) is gated on project == nile-production, so every non-production environment has no Nile-admin sign-in restriction. Combined with public admin signup this gives staging/dev admin self-assignment (environment-hardening note, not a production finding)."
+    ]
+  },
+  {
+    "fp": "H5-resolvers-no-authz-read",
+    "sep": [
+      "auth/auth.go:404 publicOperations allowlist is keyed on the client-supplied operation name (the anonymous bypass covered by a separate candidate)"
+    ]
+  },
+  {
+    "fp": "H5-resolvers-no-authz-write",
+    "severity_capped_from": "high",
+    "to": "medium"
+  },
+  {
+    "fp": "H5-resolvers-no-authz-write",
+    "sep": [
+      "updateClaims lets any authenticated user force a claims refresh for arbitrary emails (low or informational, no privilege change)",
+      "releaseQualityFlag lacks a shipment ownership check, though it is gated by feature and QualityRelease permission (deprecated, low)"
+    ]
+  },
+  {
+    "fp": "H5-logo-ssrf",
+    "sep": [
+      "LogoCache.fetch reads the full response body with io.ReadAll with no size cap (memory-exhaustion DoS by an authenticated profile editor), distinct from the SSRF root cause."
+    ]
+  }
+]

@@ -1,0 +1,7 @@
+# Candidate for verifier-v14
+Fingerprint: H5-signup-admin-selfassign
+Proposed verdict by hunter: confirmed (source-level, hunter said critical)
+
+Public Signup mutation (api/internal/graph/schema.resolvers.go ~:774) -> administrator/internal/ops/signup.go validateSignupLinks (~:88-102) allows Admin links for Nile platforms; maybeCreateProfiles (~:143) IsAdminSignup links new email to the real Admin profile; creates Firebase user + claims (~:44). Claim: unauthenticated caller self-assigns Admin party type on Nile. IMPORTANT counter-evidence another agent saw: backend/go/auth/auth.go checkUser (~:555-582) applies in production only a rule that Nile admin profile sign-in requires a @nile.ag email (HasSuffix) and google provider (plus hardcoded auditor list), enforced in validateAndGetUser at login; also UserFromToken (~:540-548) used on gRPC may skip checkUser; and project != nile-production disables it. Trace carefully: after Signup, what claims does the new user get (party type? admin profile id?), does token verification/claims-parse (auth.go ~:670-714) or checkUser reject them in production on the /graphql path, which administrator code paths read claims vs DB links, and what an Admin party type without roles can do. Decide verdict and severity strictly from the evidence; reject or demote if checkUser blocks, noting staging-only exposure if so.
+
+Use this exact fingerprint in your record.

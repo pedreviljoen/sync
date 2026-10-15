@@ -1,0 +1,113 @@
+{
+  "decision": "confirmed",
+  "record": {
+    "verdict": "confirmed",
+    "fingerprint": "gerrit-webhook-unauthenticated-event-forgery",
+    "title": "Gerrit webhook Cloud Function is public and accepts forged events without any authentication, enabling attacker-chosen staging deploys",
+    "description": "The gerrit-webhook Cloud Function is granted roles/run.invoker to allUsers, justified by a comment claiming Gerrit verifies calls via HMAC. The handler never verifies any signature, secret, OIDC token or source IP. It dispatches purely on the body-supplied 'type'. A forged change-merged event with branch master and an arbitrary newRev makes the function record that SHA as staging's targetSha and enqueue a staging deploy of it. The builder agent then fetches and hard-resets to that ref and deploys it to staging, bypassing Gerrit review/submit. Forged patchset-created, nightly-* and reconcile-verifies events can also trigger builder work.",
+    "root_cause": "Authentication was delegated to a non-existent application-layer HMAC check: the Cloud Run service is opened to allUsers and Handle() trusts the unauthenticated JSON body, including type, Change.Branch and NewRev.",
+    "intended_behavior": "Only Gerrit (webhook with shared-secret HMAC or authenticated invoker) and Cloud Scheduler (OIDC) should be able to invoke the function; event content should be accepted only from an authenticated sender.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/gerrit/functions/webhook/webhook.go",
+        "line": 62,
+        "scope": "Handle",
+        "description": "Public HTTP handler reads the raw body and unmarshals it with no signature, secret, token or IP check, then switches on attacker-controlled event.Type."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/gerrit/functions/webhook/webhook.go",
+        "line": 283,
+        "scope": "handleChangeMerged",
+        "description": "Trusts event.Change.Branch (only must equal master) and event.NewRev as the merged commit; no verification against Gerrit that the SHA was merged."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/gerrit/task/deploys.go",
+        "line": 76,
+        "scope": "RecordMerge",
+        "description": "Writes attacker-supplied SHA as staging targetSha and into pending changelog in Firestore, which also marks legitimate pending deploys as superseded."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/gerrit/task/deploy.go",
+        "line": 107,
+        "scope": "CreateDeploy",
+        "description": "Cancels queued auto-deploys and enqueues a staging deploy Task with Ref set to the forged SHA; the agent (agent/main.go:669 git.Checkout, agent/actions/git/checkout.go:60 fetch and :95 reset --hard FETCH_HEAD) fetches that ref with the bot credential and deploys it to staging."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/gerrit/terraform/functions.tf",
+        "line": 64,
+        "description": "google_cloud_run_v2_service_iam_member gerrit_webhook_invoker grants roles/run.invoker to allUsers (line 69); preceding comment at line 63 claims HMAC verification that does not exist in code."
+      },
+      {
+        "file": "backend/go/gerrit/functions/webhook/webhook.go",
+        "line": 62,
+        "description": "Handle has no authentication; grep of the gerrit module finds no hmac/signature/X-Gerrit/oidc verification anywhere in the function path."
+      },
+      {
+        "file": "backend/go/gerrit/terraform/scheduler.tf",
+        "line": 18,
+        "description": "Scheduler jobs call the function URL with plain POST and no oidc_token, confirming the function is intended to be callable unauthenticated."
+      },
+      {
+        "file": "backend/go/gerrit/functions/webhook/webhook.go",
+        "line": 353,
+        "description": "RecordMerge and CreateDeploy (line 358) are called with event.NewRev taken directly from the request body."
+      },
+      {
+        "file": "backend/go/gerrit/functions/webhook/webhook.go",
+        "line": 256,
+        "description": "tryAutoSubmit relies on Gerrit ChangeSubmittable/ChangeMergeable checks, so forged comment-added cannot force-submit unapproved changes; impact there is limited to triggering legitimate submits early."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "None required to call the function; attacker needs only the function URL (not secret, deterministic cloudfunctions/run.app URL)."
+      },
+      {
+        "kind": "environmental_dependency",
+        "description": "For arbitrary code to reach staging the attacker needs a SHA fetchable from code.nile.ag by the bot (e.g. a pushed unreviewed refs/changes patchset, which requires a Gerrit account, or any existing unmerged/merged SHA). Without a Gerrit account the attacker can only replay existing commits, supersede/disrupt legitimate staging deploys, and spam builder tasks."
+      },
+      {
+        "kind": "system_configuration",
+        "description": "Only staging is auto-targeted by this path; production deploys are manually requested and not reachable via this event. Cloud Run ingress is not restricted in the Terraform (no ingress setting found)."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "Anonymous internet caller who knows the webhook function URL.",
+      "payloads": [
+        "POST <function-url> {\"type\":\"change-merged\",\"change\":{\"number\":<n>,\"branch\":\"master\",\"subject\":\"x\"},\"patchSet\":{\"number\":1},\"newRev\":\"<fetchable-commit-sha>\"}"
+      ],
+      "instructions": [
+        "Send the POST with Content-Type application/json to the public function URL.",
+        "Handler records the SHA as staging targetSha and enqueues a staging deploy; the builder fetches and deploys it."
+      ],
+      "observed_result": "Source-level observation, not a runtime result: no check exists on any path between the allUsers invoker binding and the deploy enqueue, so the forged event is accepted and acted upon."
+    },
+    "remediation": {
+      "strategy": "Remove allUsers invoker. Require authentication: configure Gerrit webhook with a shared secret and verify the HMAC (constant-time) over the raw body in Handle before parsing, and give Cloud Scheduler an oidc_token with an invoker-only service account. Additionally, in handleChangeMerged confirm via the Gerrit API that NewRev is the merged tip of master for the given change before recording/deploying.",
+      "code_changes": []
+    },
+    "severity": {
+      "likelihood": {
+        "score": "medium",
+        "reason": "Fully unauthenticated and trivial to send, but requires knowing the function URL and, for attacker code, a Gerrit account to produce a fetchable unreviewed SHA; Gerrit fetch-by-SHA policy is not visible in source."
+      },
+      "impact": {
+        "score": "medium",
+        "reason": "Bypasses review to deploy an attacker-chosen commit to staging and disrupts the deploy pipeline; production not directly reachable, so blast radius limited to staging and builder resources."
+      },
+      "overall_severity": "medium"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "Absence of auth is directly visible in the handler, terraform IAM binding and scheduler config; the only uncertainty is deployment facts limiting which SHAs the agent can fetch."
+    }
+  },
+  "separate_root_causes": []
+}

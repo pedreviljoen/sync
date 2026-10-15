@@ -1,0 +1,143 @@
+{
+  "decision": "confirmed",
+  "record": {
+    "verdict": "confirmed",
+    "fingerprint": "auth/potatoessa-scope-first-field-only",
+    "title": "PotatoesSA export-only token user can run any Admin-party-type query because the scope gate only inspects the first top-level field that has an argument",
+    "description": "The hardcoded PotatoesSA token resolves to a user with Admin party type and the Nile admin profile id (no roles). The only thing restricting it to the exportData query is isExportDataQuery(), which is called from AuthOperation. That function loops over the operation's top-level selections, skips any field with no arguments, and returns at the first field that has an argument, using only that field's authorisedExternalQueries lookup. It never looks at the remaining selections. A single query document such as `query { exportData(type: PotatoesSA) seller(sellerUUID: 1, search: \"\") { ... } }` passes the gate. A document that starts with argument-less top-level fields also passes, because those fields are skipped. gqlgen then executes every top-level field with the PotatoesSA user in context. Resolvers guarded only by auth.PartyTypes(Admin) admit that user. Examples are Seller (any sellerUUID), Buyer (any filter.ID), AccountTransactions and OrderStatementEntries. These are read-only query fields, because the gate pins the operation type to 'query'. The scope-limiting control is therefore fully defeated for query operations. Resolvers that also require role permissions through access.Has() are not reachable, because the user has no roles.",
+    "root_cause": "isExportDataQuery() (auth.go:323-332) returns on the first top-level field that has an argument and ignores all other selections. Argument-less fields are skipped, and non-Field selections such as fragment spreads would panic on the type assertion instead of being checked. The PotatoesSA scope restriction is also implemented only as this operation-shape check, not as an allow-list enforced per resolver or field. The user is given the full Admin party type, which many resolvers accept as sufficient.",
+    "intended_behavior": "The PotatoesSA user may execute only the exportData(type: PotatoesSA) query and nothing else. Every top-level selection, including fragments and aliases, must be exportData with the PotatoesSA argument, and any other field must be rejected.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/auth/auth.go",
+        "line": 373,
+        "scope": "Client.AuthOperation (GraphQL operation middleware, registered at api/cmd/server/main.go:120)",
+        "description": "Every GraphQL operation passes through this middleware. The caller controls the Authorization header and the query document."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 474,
+        "scope": "Client.userFromIDToken",
+        "description": "A bearer value equal to the hardcoded potatoesSaToken constant (auth.go:31) returns UsrPotatoesSA(): PartyTypeAdmin, ProfileID and AdminProfileID = AdminIDNile, no Roles (auth.go:198-206). X-Platform must equal the Nile admin id for checkPlatform to pass."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 407,
+        "scope": "AuthOperation, PotatoesSA gate",
+        "description": "The only restriction is `user.IsPotatoesSA() && !isExportDataQuery(op.Operation)`. If isExportDataQuery returns true, the user is placed in the context and next(ctx) runs the whole operation."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 323,
+        "scope": "isExportDataQuery",
+        "description": "The loop iterates the top-level selections, skips fields with no arguments, and returns on the first field with an argument via authorisedExternalQueries[op][field][arg]. Later selections are never examined, so exportData(type: PotatoesSA) first (or after argument-less fields) makes the check true for the whole document."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 3262,
+        "scope": "queryResolver.Seller (also Buyer :3275, AccountTransactions :2567, OrderStatementEntries :3236)",
+        "description": "These resolvers check only auth.PartyTypes(Admin) or CheckIfPartyTypeAllowed(Admin), which the PotatoesSA user satisfies. They return tenant data for caller-chosen seller or buyer ids and ledger data, far beyond the signed export URL."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 323,
+        "description": "isExportDataQuery returns inside the first loop iteration that has an argument and never checks other selections. It also asserts every selection to *ast.Field."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 407,
+        "description": "The single enforcement point for the PotatoesSA restriction. Other than this, no per-resolver deny exists for the PotatoesSA user."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 198,
+        "description": "UsrPotatoesSA sets PartyTypeAdmin and the Nile admin id and leaves Roles empty. The comment states it should be limited to certain areas, i.e. the export query."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 31,
+        "description": "The PotatoesSA token is a constant in source (key potatoesSaToken); its value is not reproduced here."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 4270,
+        "description": "ExportData itself is gated only by PartyTypes(Admin), the same check that admits the PotatoesSA user elsewhere."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 3263,
+        "description": "Seller admits any Admin party type for an arbitrary sellerUUID (cross-tenant read). Buyer (3277) and AccountTransactions (2569) are similar."
+      },
+      {
+        "file": "backend/go/api/cmd/server/main.go",
+        "line": 120,
+        "description": "AuthOperation is the only auth middleware on the GraphQL server. No gqlgen directive or other layer blocks the PotatoesSA user on other fields."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 448,
+        "description": "The plain HTTP path (AuthHTTP) explicitly rejects the PotatoesSA user, which shows the intent that this user be kept out of other surfaces. The GraphQL path has only the bypassable check."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "The caller must present the PotatoesSA token. That is the legitimate partner holder, or anyone who has read it from the source repository or build artifacts."
+      },
+      {
+        "kind": "system_configuration",
+        "description": "The request must reach the api GraphQL endpoint with X-Platform set to the Nile admin id so that checkPlatform passes. Whether the endpoint is publicly reachable is not determined from source."
+      },
+      {
+        "kind": "data_state",
+        "description": "Only query operations are reachable, because the gate map is keyed to 'query'. Resolvers that also require role-based access.Has permissions are not reachable, because the user has no roles."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "A holder of the PotatoesSA token, who should only be able to fetch the export URL, sends one GraphQL query that begins with the allowed exportData selection and appends Admin-readable fields for other tenants.",
+      "payloads": [
+        "query { exportData(type: PotatoesSA) seller(sellerUUID: 1, search: \"\") { __typename } }"
+      ],
+      "instructions": [
+        "Send POST to the api GraphQL endpoint with Authorization set to the PotatoesSA token and X-Platform set to the Nile admin id.",
+        "Use a document whose first argument-bearing top-level field is exportData(type: PotatoesSA), followed by other query fields such as seller, buyer, accountTransactions or orderStatementEntries. Selections with no arguments listed before exportData are also skipped by the gate.",
+        "Expected: the gate at auth.go:407 passes and the additional fields execute under the Admin-party-type PotatoesSA user."
+      ],
+      "observed_result": "Source-level observation only, not a runtime result. The loop in isExportDataQuery returns at the first selection with an argument and checks nothing else. The code shows no other control on the path, and the target resolvers admit Admin party type. This was derived by reading the code and nothing was executed."
+    },
+    "remediation": {
+      "strategy": "Replace the first-field heuristic with a strict check. Require every top-level selection (resolving fragments and rejecting non-Field selections safely) to be exportData with the PotatoesSA argument, and reject if any other selection exists. Better still, remove the Admin party type from this user, or add an explicit deny for IsPotatoesSA in resolvers or a gqlgen directive. Also move the token out of source and rotate it.",
+      "code_changes": [
+        {
+          "file_name": "backend/go/auth/auth.go",
+          "fixed_code": "func isExportDataQuery(op *ast.OperationDefinition) bool {\n\tif len(op.SelectionSet) == 0 {\n\t\treturn false\n\t}\n\tfor _, set := range op.SelectionSet {\n\t\tf, ok := set.(*ast.Field)\n\t\tif !ok || len(f.Arguments) != 1 {\n\t\t\treturn false\n\t\t}\n\t\tif !authorisedExternalQueries[string(op.Operation)][f.Name][f.Arguments[0].Value.String()] {\n\t\t\treturn false\n\t\t}\n\t}\n\treturn true\n}"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "medium",
+        "reason": "The path is trivially exploitable once the token is held, but the token is a partner credential that is also hardcoded in source. Whether the GraphQL endpoint is reachable by the token holder is a deployment fact not seen in source."
+      },
+      "impact": {
+        "score": "high",
+        "reason": "It turns an export-only credential into read access to every query resolver gated only by Admin party type, including cross-tenant seller and buyer data and ledger and accounting data. Mutations and role-gated resolvers are not reachable."
+      },
+      "overall_severity": "medium"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "The control flow of the gate and the resolver checks were read directly. The remaining uncertainty is deployment reach and which Admin-only resolvers return meaningful data."
+    }
+  },
+  "separate_root_causes": [
+    "The PotatoesSA and robot bearer tokens are hardcoded constants in backend/go/auth/auth.go (lines 30-31), which is a secret committed to source. This is a distinct credential-exposure root cause."
+  ]
+}

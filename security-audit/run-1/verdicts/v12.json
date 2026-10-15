@@ -1,0 +1,79 @@
+{
+  "decision": "needs_validation",
+  "record": {
+    "verdict": "needs_validation",
+    "fingerprint": "api-graphql-introspection-cycle-amplification-unauth",
+    "title": "Unauthenticated GraphQL introspection with no depth/complexity limit may allow resource-exhaustion amplification on the shared api service",
+    "description": "The api GraphQL server is built with no query complexity or depth limit. Introspection is always enabled. The auth middleware admits an unauthenticated caller whenever the client-chosen operation name is ValidateCurrentToken, SignUp or Signup. An anonymous client can therefore send a small, deeply nested introspection query that walks the cyclic __Type graph (for example __schema{types{fields{type{fields{type{...}}}}}} or interfaces/possibleTypes), under one of those operation names. Response size and CPU grow roughly exponentially with nesting depth, while the request grows linearly. The http.Server has no read, write or body-size limits. Source confirms the missing controls and the auth bypass by operation name. Whether the amplification is large enough to degrade the service depends on the gqlgen v0.17.90 introspection and validation behaviour, which could not be executed here, and on Cloud Run request timeouts, concurrency, autoscaling and any fronting WAF or limit. These are not visible in source, so this stays needs_validation.",
+    "claimed_root_cause": "newServer registers handler.New without extension.FixedComplexityLimit or a depth validator. It always enables extension.Introspection{}, and AuthOperation lets unauthenticated users through by op.Operation.Name allowlist, which is attacker-controlled. http.ListenAndServe is used with no timeouts or MaxBytesReader.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/cmd/server/main.go",
+        "line": 289,
+        "scope": "main: http.Handle(\"/graphql\", gzipHandler)",
+        "description": "Public /graphql endpoint wrapped by CORS and gzip only. Anonymous POST or GET is accepted."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/auth/auth.go",
+        "line": 373,
+        "scope": "Client.AuthOperation",
+        "description": "Operation middleware. For an unauthenticated user (FIDUnauthed) it blocks only when op.Operation.Name is not in publicOperations (line 422). A client-chosen operation name of Signup or ValidateCurrentToken passes, and the check is on the name, not on the selected fields, so an introspection selection set is admitted."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/cmd/server/main.go",
+        "line": 75,
+        "scope": "newServer",
+        "description": "Server is built with transports, an LRU query cache and APQ. No complexity limit, depth limit or query-size limit extension is registered. I found no ComplexityLimit or FixedComplexityLimit usage anywhere under backend/go."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/cmd/server/main.go",
+        "line": 123,
+        "scope": "newServer: server.Use(extension.Introspection{})",
+        "description": "Introspection is enabled in all environments. The nested cyclic __Type traversal is executed and serialised for an anonymous caller, and the ListenAndServe at line 303 adds no timeouts or body limits."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/api/cmd/server/main.go",
+        "line": 123,
+        "description": "extension.Introspection{} is unconditionally enabled with no environment gate."
+      },
+      {
+        "file": "backend/go/api/cmd/server/main.go",
+        "line": 303,
+        "description": "http.ListenAndServe on the default mux, with no http.Server timeouts or MaxBytesReader."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 404,
+        "description": "Unauthenticated users are rejected only if op.Operation.Name is not in publicOperations."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 422,
+        "description": "publicOperations = ValidateCurrentToken, SignUp, Signup, matched by client-supplied operation name."
+      },
+      {
+        "file": "backend/go/go.mod",
+        "line": 20,
+        "description": "gqlgen v0.17.90. This version is not in the local module cache (only v0.17.73 and v0.17.76), so framework behaviour could not be read."
+      }
+    ],
+    "blockers": [
+      "No runtime execution is allowed, so the actual CPU, memory and response-size amplification of nested introspection on gqlgen v0.17.90 and gqlparser validation is not measured.",
+      "Cloud Run request timeout, max instances, concurrency, CPU limits and any Cloud Armor or WAF or gateway query limits are not in source.",
+      "gqlgen v0.17.90 source is not available locally, so I could not confirm whether it adds an introspection depth bound or default limits."
+    ],
+    "validation_plan": {
+      "local": "In a local dev instance with dummy data, send the Signup-named introspection query at depths 3, 5, 7 and 9. Record response bytes, CPU time and peak RSS per depth to see if growth is exponential. Then check whether adding FixedComplexityLimit or a depth validator bounds it. Run this only against localhost.",
+      "deployment": "The service owner should review the Cloud Run config for the api service (request timeout, concurrency, max instances) and any Cloud Armor or load-balancer policy. They should also check the staging request-latency and memory dashboards for a controlled, owner-run query at moderate depth. Do not probe production."
+    }
+  },
+  "separate_root_causes": [
+    "Public-operation allowlist in auth/auth.go:422 is keyed on the client-supplied operation name, so any selection set (not just signup or token validation fields) is admitted for unauthenticated callers when named Signup, ValidateCurrentToken or SignUp. This is an auth-boundary weakness whose real impact depends on per-resolver authorization, which I did not review."
+  ]
+}

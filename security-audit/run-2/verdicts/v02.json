@@ -1,0 +1,86 @@
+{
+  "decision": "needs_validation",
+  "record": {
+    "verdict": "needs_validation",
+    "fingerprint": "c3-fileviewer-iframe-unvalidated-src",
+    "title": "Market FileViewer renders unvalidated server-supplied file URL as iframe src (possible javascript:/data: execution in market origin)",
+    "description": "Row detail file/image values are split from a server-provided string (RowDetailItem.tsx:11 for Images/Documents labels, or data.images at :83) and passed to Files.tsx:15 and then FileViewer.tsx. There the value is used as src for an img or an iframe with no scheme or host check and no sandbox attribute (FileViewer.tsx:165, :172). The ref(storage, src) guard (FileViewer.tsx:40-46) does not gate rendering. When ref() throws (as it would for a javascript: string), storageRef is null, the effect sets showError and clears isCheckingContentType (FileViewer.tsx:50-55). The button therefore stays enabled and contentType stays '' (not image/), so the click opens the Modal and takes the iframe branch with the raw src. The backend accepts arbitrary strings for these fields: field.ParseValidURLs (backend/go/api/internal/form/field/field.go:811-826) only calls url.Parse, which accepts javascript: and data: strings. These flow through dispatch.go:177-201 and 257-281 (and the update_notes, receive, inbound_edit and outbound_edit handlers) into ledger image infos, and are then returned via model.DetImages and the Images info pair (graph/shipments.go:5489-5562). No CSP is defined in the client or backend source. The remaining unknowns are deployment and browser facts that source cannot settle: whether any CSP or header is applied at hosting, whether a counterparty (the victim) actually views the attacker-written field, and the browser behaviour of a javascript: iframe src.",
+    "claimed_root_cause": "No scheme or host allow-list (for example firebasestorage.googleapis.com or gs://) is applied to file/image URL strings either when accepted by the backend (ParseValidURLs only checks that url.Parse succeeds) or when rendered by the client (FileViewer uses the value directly as iframe/img src with no sandbox). The ref(storage, src) failure path only shows an error toast and does not prevent the click-to-render path.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/shipments/dispatch.go",
+        "line": 177,
+        "scope": "dispatch form handling (and sibling handlers update_notes.go:192-210, receive.go:207-223, inbound_edit.go:203-217, outbound_edit.go:232-242)",
+        "description": "Authenticated form user submits a FieldInput value for a reference-image/dispatch-images/driver-docs field; it is parsed with field.ParseValidURLs."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/form/field/field.go",
+        "line": 818,
+        "scope": "ParseValidURLs",
+        "description": "Only url.Parse(s) is checked; any scheme (javascript:, data:, https://attacker) is accepted and appended to values."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/shipments.go",
+        "line": 5489,
+        "scope": "shipment detail builders (DetImages at 5493-5523; Images info pair joined with ';' at 5555-5562)",
+        "description": "Stored image URLs are returned unchanged to other users in DetailItem.images / info.value."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/market/src/components/SubTableActionCard/RowDetailItem.tsx",
+        "line": 83,
+        "scope": "RowDetailItem",
+        "description": "data.images (and info.value split on ';' at :11 for Images/Documents labels, rendered at :75) are passed to <Files>."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/market/src/components/Files.tsx",
+        "line": 15,
+        "scope": "Files",
+        "description": "Each string is passed as src to FileViewer with no validation."
+      },
+      {
+        "kind": "sink",
+        "file": "client/market/src/components/FileViewer.tsx",
+        "line": 172,
+        "scope": "FileViewer modal render",
+        "description": "Non-image (contentType '' or failed metadata) branch renders <iframe src={src}> with no sandbox; on user click the value is loaded in the viewer's browser."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "client/market/src/components/FileViewer.tsx",
+        "line": 40,
+        "description": "storageRef is built in try/catch and returns null on throw; this is a crash guard, not a gate on rendering."
+      },
+      {
+        "file": "client/market/src/components/FileViewer.tsx",
+        "line": 50,
+        "description": "Null storageRef only sets name, showError and isCheckingContentType=false, leaving the open button enabled (disabled at :118 depends only on checking state and online status)."
+      },
+      {
+        "file": "client/market/src/components/FileViewer.tsx",
+        "line": 172,
+        "description": "iframe has no sandbox attribute and src is the raw string."
+      },
+      {
+        "file": "backend/go/api/internal/form/field/field.go",
+        "line": 818,
+        "description": "Only url.Parse is applied to file field values."
+      }
+    ],
+    "blockers": [
+      "Whether the counterparty viewer can see the attacker-written field (per-role visibility and authorization of the shipment detail builders) was not fully traced from source.",
+      "Browser behaviour for a javascript: iframe src (executes inheriting parent origin in common browsers) and whether any CSP or response header is applied at hosting are deployment facts not present in source.",
+      "Auth token storage (Firebase persistence in the market origin) determines impact if script runs; not verified here."
+    ],
+    "validation_plan": {
+      "local": "In a dev build, seed a shipment dispatch field value containing a harmless marker URL (for example a javascript: URL that only writes document.title) via the normal form submission, open the row detail as a second test user, click 'File 1', and observe whether the marker runs in the market origin. Also add a unit test that FileViewer rendered with a non-storage src still produces an iframe with that src.",
+      "deployment": "Owner to inspect response headers of the deployed market origin for Content-Security-Policy (script-src, frame-src) in a test or staging environment and confirm which roles can view which dispatch/reference file fields. Do not probe production."
+    }
+  },
+  "separate_root_causes": []
+}

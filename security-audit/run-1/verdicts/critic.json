@@ -1,0 +1,344 @@
+{
+  "missing_units": [
+    {
+      "surface": "Downstream gRPC servers (administrator, ledger, trader, postman, librarian, harvester) Jobs/RPC handlers reachable with forgeable user-firebase-id metadata or robot ID",
+      "boundary": "service-side caller identity and tenant scoping after thoth interceptor",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Access control",
+      "starting_paths": [
+        "backend/go/administrator/cmd/server",
+        "backend/go/ledger/cmd/server",
+        "backend/go/trader/cmd/server",
+        "backend/go/postman/cmd/server",
+        "backend/go/librarian/cmd/server",
+        "backend/go/harvester/cmd/server",
+        "backend/go/ledger/jobs.go",
+        "backend/go/harvester/jobs.go",
+        "backend/go/thoth"
+      ],
+      "selected_companion_blocks": [
+        "PROTOCOLS-RPC-AND-MESSAGING.md#Core discipline",
+        "DATA-ISOLATION-AND-LIFECYCLE.md#Tenant and object-isolation attack classes",
+        "DATA-ISOLATION-AND-LIFECYCLE.md#Validation rules"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+          "reason": "Go only"
+        }
+      ],
+      "reason": "source-backed coverage gap: h1/h5/h7 all list downstream gRPC handlers and service-side caller scoping as uncovered; the five other cmd/server entry points have no unit"
+    },
+    {
+      "surface": "gRPC UserFromToken and checkUser auth path",
+      "boundary": "backend/go/auth/auth.go gRPC token path vs GraphQL path",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Access control",
+      "starting_paths": [
+        "backend/go/auth/auth.go",
+        "backend/go/thoth",
+        "backend/go/administrator/internal/ops"
+      ],
+      "selected_companion_blocks": [
+        "WEB-PROTOCOL-AND-AUTH.md#Core discipline",
+        "WEB-PROTOCOL-AND-AUTH.md#Universal moves",
+        "WEB-PROTOCOL-AND-AUTH.md#Validation rules"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "CLIENT-SIDE.md#Core discipline",
+          "reason": "client/ out of scope"
+        }
+      ],
+      "reason": "source-backed coverage gap: parallel path where gRPC UserFromToken skips checkUser, suffix-based checkUser and hardcoded auditor list are leads no unit closed"
+    },
+    {
+      "surface": "Public GraphQL Signup operation-name bypass and admin-link creation / email pre-hijack",
+      "boundary": "backend/go/auth/auth.go AuthOperation unauthenticated lifecycle (signup/account creation)",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Access control",
+      "starting_paths": [
+        "backend/go/auth/auth.go",
+        "backend/go/administrator/internal/ops/signup.go",
+        "backend/go/administrator/internal/ops/users",
+        "backend/functions/firebase/functions/src/signupBlocking.ts",
+        "backend/functions/firebase/functions/src/onCreateFirebaseUser.ts"
+      ],
+      "selected_companion_blocks": [
+        "WEB-PROTOCOL-AND-AUTH.md#Federated-identity attack classes",
+        "WEB-PROTOCOL-AND-AUTH.md#Validation rules",
+        "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "AI-AND-LLM.md#Core discipline",
+          "reason": "no model boundary"
+        }
+      ],
+      "reason": "source-backed coverage gap: h5 flagged unauthenticated callers running any selection set by naming operation Signup and pre-hijack leads as uncovered; per-resolver FIDUnauthed rejection unverified"
+    },
+    {
+      "surface": "Harvester job runners: docs archiver, download actions, chromedp browser, robot-token appended to URLs",
+      "boundary": "harvester outbound fetch/browser with attacker-influenced URLs",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Injection",
+      "starting_paths": [
+        "backend/go/harvester/browser.go",
+        "backend/go/harvester/sharedbrowser.go",
+        "backend/go/harvester/internal",
+        "backend/go/harvester/methods.go",
+        "backend/go/harvester/jobs.go",
+        "backend/go/harvester/inputs.go"
+      ],
+      "selected_companion_blocks": [
+        "WEB-PROTOCOL-AND-AUTH.md#Universal moves",
+        "RESOURCE-EXHAUSTION-AND-AVAILABILITY.md#Computational amplification attack classes"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "CLIENT-SIDE.md#Core discipline",
+          "reason": "server-side headless browser, not client code"
+        }
+      ],
+      "reason": "source-backed coverage gap: h6/h2 list harvester token-appending URLs and chromedp/docs archiver as not reviewed; ledger only covered potatoesSA unzip"
+    },
+    {
+      "surface": "File download/extraction helpers (ledger shipmentdocs, apuat DownloadFileToDir, mache filestore, nexport)",
+      "boundary": "path/URL handling for externally supplied file names and sources",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Resource and file handling",
+      "starting_paths": [
+        "backend/go/apuat/methods.go",
+        "backend/go/mache",
+        "backend/go/ledger/orderdoc",
+        "backend/go/ledger/externalinventories.go",
+        "backend/go/api/docs"
+      ],
+      "selected_companion_blocks": [
+        "RESOURCE-EXHAUSTION-AND-AVAILABILITY.md#Universal moves",
+        "RESOURCE-EXHAUSTION-AND-AVAILABILITY.md#Validation rules"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+          "reason": "Go only"
+        }
+      ],
+      "reason": "source-backed coverage gap: h6 explicitly lists these as not reviewed"
+    },
+    {
+      "surface": "Gerrit agent verify/task execution (verify.go, task/*, migrate, deploy) triggered by Slack/Gerrit change content",
+      "boundary": "untrusted change content to agent VM command execution and secrets",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Injection",
+      "starting_paths": [
+        "backend/go/gerrit/agent/verify.go",
+        "backend/go/gerrit/agent/deploy.go",
+        "backend/go/gerrit/agent/migrate.go",
+        "backend/go/gerrit/agent/secrets.go",
+        "backend/go/gerrit/agent/actions",
+        "backend/go/gerrit/task",
+        "backend/go/gerrit/checks"
+      ],
+      "selected_companion_blocks": [
+        "SUPPLY-CHAIN-AND-RELEASE.md#Core discipline",
+        "SUPPLY-CHAIN-AND-RELEASE.md#Validation rules"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "CLOUD-AND-DEPLOYMENT.md#Core discipline",
+          "reason": "deployment facts not in source"
+        }
+      ],
+      "reason": "source-backed coverage gap: h3 lists gerrit verify-task execution as uncovered; the gerrit unit only started at webhook, functions.go and nilocloud/internal/gerrit.go"
+    },
+    {
+      "surface": "nilocloud /v1/gerrit/checks* and subscriptions routes: ValidExternalID strength, Pub/Sub push no-op auth",
+      "boundary": "unauthenticated nilocloud routes to checks store and cloudbuild/nilo subscription handlers",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Access control",
+      "starting_paths": [
+        "backend/go/nilocloud/internal",
+        "backend/go/nilocloud/cmd/server",
+        "backend/go/gerrit/checks",
+        "backend/go/gerrit/notify",
+        "backend/go/gerrit/sentryrelease"
+      ],
+      "selected_companion_blocks": [
+        "WEB-PROTOCOL-AND-AUTH.md#API-key and mTLS attack classes",
+        "PROTOCOLS-RPC-AND-MESSAGING.md#Core discipline"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+          "reason": "Go only"
+        }
+      ],
+      "reason": "source-backed coverage gap: h2 lists checks/log ValidExternalID strength and cloudbuild yaml as uncovered; gerrit/checks, notify and sentryrelease are not in any starting_paths"
+    },
+    {
+      "surface": "Per-FormType form handlers and table/screen builders in api",
+      "boundary": "form_input to resolver to service scoping",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Access control",
+      "starting_paths": [
+        "backend/go/api/internal/form",
+        "backend/go/api/internal/gql",
+        "backend/go/api/internal/shipment_edits",
+        "backend/go/api/internal/shipments",
+        "backend/go/api/internal/cart_items",
+        "backend/go/api/internal/quotes",
+        "backend/go/api/internal/shipmentbutton",
+        "backend/go/api/internal/subscriptions",
+        "backend/go/api/internal/truck"
+      ],
+      "selected_companion_blocks": [
+        "DATA-ISOLATION-AND-LIFECYCLE.md#Tenant and object-isolation attack classes",
+        "DATA-ISOLATION-AND-LIFECYCLE.md#Universal moves"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "CLIENT-SIDE.md#Core discipline",
+          "reason": "client/ out of scope"
+        }
+      ],
+      "reason": "source-backed coverage gap: h5 lists per-FormType handlers and builder subpackages as uncovered; the access-control unit reviewed only graph/ and a few files"
+    },
+    {
+      "surface": "Ledger and trader services mutation/read logic (inventory, orders, consignment, edits, packhouse) plus checkout, payments, billing, quotecheckout",
+      "boundary": "service methods that take party/tenant IDs from request payloads",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Access control",
+      "starting_paths": [
+        "backend/go/ledger/methods.go",
+        "backend/go/ledger/orders.go",
+        "backend/go/ledger/packhouse.go",
+        "backend/go/trader",
+        "backend/go/checkout",
+        "backend/go/payments/methods.go",
+        "backend/go/billing/billing.go",
+        "backend/go/quotecheckout"
+      ],
+      "selected_companion_blocks": [
+        "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline",
+        "DATA-ISOLATION-AND-LIFECYCLE.md#Tenant and object-isolation attack classes",
+        "DATA-ISOLATION-AND-LIFECYCLE.md#Validation rules"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+          "reason": "Go only"
+        }
+      ],
+      "reason": "source-backed coverage gap: ledger unit only covered fortknox/seshat/mache-adjacent paths; billing/payments/checkout are unreviewed money-handling code"
+    },
+    {
+      "surface": "Repo-wide dangerous-sink sweep (exec, math/rand, InsecureSkipVerify, hardcoded secrets, SQL Sprintf) including srch, mysql, pg, nache, uniq, tools, imagebuild",
+      "boundary": "shared libraries used by all services",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Injection",
+      "starting_paths": [
+        "backend/go/srch",
+        "backend/go/mysql",
+        "backend/go/pg",
+        "backend/go/nache",
+        "backend/go/uniq",
+        "backend/go/tools",
+        "backend/go/imagebuild",
+        "backend/go/seshat",
+        "backend/go/fortknox",
+        "backend/go/koos",
+        "backend/go/anubis"
+      ],
+      "selected_companion_blocks": [
+        "WEB-PROTOCOL-AND-AUTH.md#Universal moves"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+          "reason": "Go only"
+        }
+      ],
+      "reason": "source-backed coverage gap: h6 says the repo-wide sweep was not performed; shared data-access libraries are in no unit"
+    },
+    {
+      "surface": "Firebase functions priceMailer, thumbnails, thumbnailsQC, index trigger functions",
+      "boundary": "Storage/Firestore/HTTP triggers not covered by the pdf/signup unit",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Injection",
+      "starting_paths": [
+        "backend/functions/firebase/functions/src/priceMailer.ts",
+        "backend/functions/firebase/functions/src/thumbnailsQC.ts",
+        "backend/functions/firebase/functions/src/index.ts",
+        "backend/functions/firebase/functions/src/config.ts"
+      ],
+      "selected_companion_blocks": [
+        "WEB-PROTOCOL-AND-AUTH.md#Universal moves",
+        "PROTOCOLS-RPC-AND-MESSAGING.md#Core discipline"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "CLIENT-SIDE.md#Core discipline",
+          "reason": "server functions"
+        }
+      ],
+      "reason": "source-backed coverage gap: h4 reviewed only pdf, signupBlocking, onCreateFirebaseUser and thumbnails; priceMailer and thumbnailsQC are unmapped"
+    },
+    {
+      "surface": "Integrations: Twilio, amt, weather, and administrator/ledger genseed and schemaserver tools",
+      "boundary": "third-party webhook/callback inputs and seed/schema utility entry points",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Access control",
+      "starting_paths": [
+        "backend/go/integrations/twilio",
+        "backend/go/integrations/amt",
+        "backend/go/integrations/weather",
+        "backend/go/api/cmd/schemaserver",
+        "backend/go/administrator/cmd/genseed",
+        "backend/go/ledger/cmd/genseed",
+        "backend/go/api/internal/webhooks"
+      ],
+      "selected_companion_blocks": [
+        "WEB-PROTOCOL-AND-AUTH.md#API-key and mTLS attack classes",
+        "WEB-PROTOCOL-AND-AUTH.md#Validation rules"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+          "reason": "Go only"
+        }
+      ],
+      "reason": "source-backed coverage gap: schemaserver and genseed entry points are unmapped; only Twilio HMAC in api webhooks was touched"
+    },
+    {
+      "surface": "Relay deployment and loadtests tooling",
+      "boundary": "relay provisioning/terraform and loadtest credentials",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Resource and file handling",
+      "starting_paths": [
+        "backend/relay/provision-pi.sh",
+        "backend/relay/Dockerfile",
+        "backend/relay/docker-compose.yml",
+        "backend/relay/terraform",
+        "backend/loadtests/locust_testing.py",
+        "backend/loadtests/run.sh"
+      ],
+      "selected_companion_blocks": [
+        "PROTOCOLS-RPC-AND-MESSAGING.md#Core discipline",
+        "SUPPLY-CHAIN-AND-RELEASE.md#Core discipline"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "CLOUD-AND-DEPLOYMENT.md#Core discipline",
+          "reason": "runtime facts not in source"
+        }
+      ],
+      "reason": "source-backed coverage gap: relay unit only reviewed relay.py; loadtests directory is not mapped to any unit"
+    }
+  ],
+  "reassign_ids": [
+    "backend%2Fgo%2Fapi%2Finternal%2Fgraph%23resolvers::backend%2Fgo%2Fapi%2Finternal%2Fgraph%2Fauth_checks.go%23Authorized::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control"
+  ],
+  "resolved_prior_leads": [],
+  "stop": false
+}

@@ -1,0 +1,136 @@
+{
+  "decision": "confirmed",
+  "record": {
+    "verdict": "confirmed",
+    "fingerprint": "c1-market-form-description-stored-xss-profile-name",
+    "title": "Stored XSS: buyer/seller profile name rendered unescaped via dangerouslySetInnerHTML in server-driven form description (hits admin session)",
+    "description": "A buyer or seller profile owner can set their profile Name (FormTypeSetProfileCompany, field profileName) to an HTML payload. The only server-side name checks are a double-quote ban and a 100-character cap. Backend form builders interpolate that name into form.Description with fmt.Sprintf and no escaping. For example, OutboundAddProduct uses buyer.Name and InboundAddProduct uses seller.Name. Form.tsx in the market client renders the description of any non-callout form with dangerouslySetInnerHTML and no sanitizer. The Description helper does not escape, and the form defaults to the Normal variant. When a platform admin opens the Add Outbound product or Add Inbound product form for a shipment tied to the attacker's profile, the attacker's script runs in the admin's browser session on the market origin.",
+    "root_cause": "The backend treats form.Description as plain text and interpolates user-controlled profile names into it without HTML escaping. The client treats the same field as trusted HTML in the Normal variant. The name validator (field.ValueFor) blocks only the double-quote character.",
+    "intended_behavior": "Form descriptions containing user-supplied data should be rendered as text, or HTML-escaped or sanitized before rendering. User-controlled names should not be able to inject markup into other tenants' or admins' sessions.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1146,
+        "scope": "mutationResolver.Form (auth chks, ~1146-1160)",
+        "description": "Lower-trust entrypoint. The FormTypeSetProfileCompany case allows Seller or Buyer party types for their own profile ID (auth.PartyTypeForID), in addition to Admin."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/customers/company.go",
+        "line": 557,
+        "scope": "ProfileCompanyInput switch on profileName",
+        "description": "ap.Name is set from field.ValueFor. MaxLength is 100 (company.go:1058). ValueFor (backend/go/api/internal/form/field/field.go:405-416) rejects only double quotes. The value is persisted via handleSetProfileCompany (backend/go/api/internal/graph/form_input.go:1025) and Administrator.Set. The ProfileOwner role has Write ProfileInformation (backend/go/access/permissions/permissions.go:215)."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/form.go",
+        "line": 272,
+        "scope": "queryResolver.form case FormTypeAddOutboundShipmentProduct (~272-286); the inbound case at 223-238 is analogous",
+        "description": "The buyer profile is loaded by ID from the shipment (stored Name) and passed to shipments.OutboundAddProduct. The Form query default auth (schema.resolvers.go:3286) is Admin only for these form types, so the victim is a platform admin."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/shipments/outbound_add_product.go",
+        "line": 21,
+        "scope": "OutboundAddProduct",
+        "description": "form.Description(fmt.Sprintf(\"Allocate inventory to outbound shipment to %s\", buyer.Name)) with no escaping. form.Description (backend/go/api/internal/form/form.go:58-62) assigns the string verbatim, and the variant defaults to Normal (form.go:25). inbound_add_product.go:56 does the same with seller.Name."
+      },
+      {
+        "kind": "sink",
+        "file": "client/market/src/components/Form.tsx",
+        "line": 122,
+        "scope": "Form component, non-Callout description branch",
+        "description": "dangerouslySetInnerHTML={{ __html: form.description }} with no sanitizer. Only the Callout variant (line ~112) renders as text. Neither OutboundAddProduct nor InboundAddProduct sets Callout. The form is opened from the admin EditShipment screen (client/market/src/screens/Shipments/EditShipment.tsx:370)."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "client/market/src/components/Form.tsx",
+        "line": 122,
+        "description": "dangerouslySetInnerHTML with form.description. No DOMPurify or sanitize usage found anywhere in client/market outside node_modules."
+      },
+      {
+        "file": "backend/go/api/internal/shipments/outbound_add_product.go",
+        "line": 21,
+        "description": "Sprintf embeds buyer.Name into the description."
+      },
+      {
+        "file": "backend/go/api/internal/shipments/inbound_add_product.go",
+        "line": 56,
+        "description": "Sprintf embeds seller.Name into the description."
+      },
+      {
+        "file": "backend/go/api/internal/form/field/field.go",
+        "line": 405,
+        "description": "ValueFor enforces only MaxLength and a no-double-quote rule. HTML tags, single quotes and backticks pass."
+      },
+      {
+        "file": "backend/go/api/internal/graph/customers/company.go",
+        "line": 1058,
+        "description": "profileName MaxLength is 100, which is enough for a short onerror payload."
+      },
+      {
+        "file": "backend/go/api/internal/graph/packhouse/shipment_info.go",
+        "line": 87,
+        "description": "Sibling sink: recipient/prf.Name interpolated into the description, which is likely rendered through the same Form.tsx path."
+      },
+      {
+        "file": "backend/go/api/internal/graph/customers/delete_user.go",
+        "line": 15,
+        "description": "Sibling sink: userEmail interpolated, but the viewer is limited to the user's own email (schema.resolvers.go:3321), so it is self-only and low value."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "Attacker holds an authenticated buyer or seller profile-owner account on their own profile."
+      },
+      {
+        "kind": "user_interaction",
+        "description": "A platform admin must open the Add Outbound product or Add Inbound product form for a shipment linked to the attacker's profile. This is a routine admin workflow."
+      },
+      {
+        "kind": "system_configuration",
+        "description": "A strict deployed CSP or equivalent response headers are not visible in source. None was found in the repo (grep for Content-Security-Policy and DOMPurify found nothing under client/market). If one exists it could blunt inline-handler payloads."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "A registered buyer or seller changes their own profile Name to a payload with no double quotes. An admin later opens the allocation form for that profile's shipment, and the payload executes in the admin's session.",
+      "payloads": [
+        "<img src=x onerror=alert(document.domain)>"
+      ],
+      "instructions": [
+        "As the buyer or seller profile owner, submit FormTypeSetProfileCompany with the profileName field set to the payload (it is under 100 characters and contains no double quotes).",
+        "Get a shipment created that references the profile. An admin then opens the Add Outbound product or Add Inbound product form for it from the EditShipment screen.",
+        "The server returns the description containing the raw payload, and Form.tsx injects it as HTML."
+      ],
+      "observed_result": "Source-level observation only, not a runtime result. Every hop was read in source: profile owners may set Name, no escaping or sanitizing exists on the path, and the sink uses dangerouslySetInnerHTML for the Normal-variant description. Nothing was executed."
+    },
+    "remediation": {
+      "strategy": "Render form.description as text, or sanitize it with a vetted HTML sanitizer such as DOMPurify. On the backend, html.EscapeString every user-controlled value interpolated into descriptions (profile name, email, recipient). Optionally reject '<' and '>' in profile names and add a CSP.",
+      "code_changes": [
+        {
+          "file_name": "backend/go/api/internal/shipments/outbound_add_product.go",
+          "fixed_code": "form.Description(fmt.Sprintf(\"Allocate inventory to outbound shipment to %s\", html.EscapeString(buyer.Name))),"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "medium",
+        "reason": "Any registered buyer or seller can plant the payload. It fires only when an admin opens the specific form for that profile's shipment, and a deployed CSP could mitigate it."
+      },
+      "impact": {
+        "score": "high",
+        "reason": "Script execution in a platform admin session on the market origin crosses the tenant boundary (buyer or seller to admin). It permits admin-level GraphQL actions as that admin."
+      },
+      "overall_severity": "high"
+    },
+    "confidence": {
+      "score": "medium",
+      "reason": "Every source hop was read and the sink is unsanitized. The admin-only audience of the carrier forms and the absence of a CSP are inferred from source, since deployment headers are not visible. No runtime execution."
+    }
+  },
+  "separate_root_causes": []
+}

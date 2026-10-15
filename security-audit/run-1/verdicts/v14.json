@@ -1,0 +1,83 @@
+{
+  "decision": "rejected",
+  "record": {
+    "verdict": "rejected",
+    "fingerprint": "H5-signup-admin-selfassign",
+    "title": "Public Signup lets an unauthenticated caller self-assign the Nile Admin party type",
+    "description": "The public GraphQL Signup mutation accepts links with Party=Admin on the Nile and Nile Inputs platforms. IsAdminSignup then links the new email to the real Nile admin profile and the user gets Firebase claims for it. The hunter claimed this gives an unauthenticated caller Nile admin access. In production the account is rejected on every authenticated request, so the claim does not hold there. Only non-production projects remain exposed.",
+    "claimed_root_cause": "validateSignupLinks allows Admin links when Platform.IsNileAny(). maybeCreateProfiles then returns the real admin profile IDs from IsAdminSignup() with no check on the caller or email domain. createUser links the new email to that profile and sets Firebase claims (userType=admin, profileId=AdminIDNile or AdminIDNileInputs).",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 774,
+        "scope": "mutationResolver.Signup",
+        "description": "Public GraphQL mutation. It converts the input and calls Administrator.Signup with no identity or role check in the resolver."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/administrator/internal/ops/signup.go",
+        "line": 97,
+        "scope": "validateSignupLinks",
+        "description": "Admin links are accepted when the platform is Nile or Nile Inputs."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/administrator/internal/ops/signup.go",
+        "line": 143,
+        "scope": "maybeCreateProfiles",
+        "description": "IsAdminSignup (administrator/methods.go:924) returns the existing admin profile IDs via Platform.AdminProfileID(). The user is linked to the real Nile admin profile."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/administrator/internal/ops/signup.go",
+        "line": 306,
+        "scope": "createUser",
+        "description": "A Firebase password user is created with ProfileID set to the admin profile. Claims are then built from the DB (users.go:74) and set at signup.go:63."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/auth/auth.go",
+        "line": 555,
+        "scope": "checkUser",
+        "description": "Every authenticated request goes through userFromIDToken (auth.go:487), validateAndGetUser (auth.go:533) and checkUser. In nile-production it rejects a non-google.com provider for @nile.ag emails. It also rejects any account whose ProfileID is AdminIDNile or AdminIDNileInputs unless the email is @nile.ag or on the auditor allowlist. A self-registered password user therefore always fails, so the claimed admin effect does not occur."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/administrator/internal/ops/signup.go",
+        "line": 97,
+        "description": "Admin signup is permitted for Nile and Nile Inputs only. Freshmark and Villa admin links are rejected."
+      },
+      {
+        "file": "backend/go/administrator/methods.go",
+        "line": 924,
+        "description": "IsAdminSignup maps links to real admin profile IDs. This is the weak spot the hunter identified, and it is real."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 487,
+        "description": "The default branch of userFromIDToken calls validateAndGetUser, which calls checkUser on every API request, not only at login."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 555,
+        "description": "checkUser blocks (1) @nile.ag emails that did not sign in with google.com and (2) non-@nile.ag, non-auditor users whose ProfileID is the Nile or Nile Inputs admin profile. Both rules apply only when project is nile-production, matched against the token audience."
+      },
+      {
+        "file": "backend/go/auth/auth.go",
+        "line": 543,
+        "description": "UserFromToken skips checkUser. Its only non-test caller is thoth/handlers.go:204, a telemetry identity comparison, so it is not an authorization path."
+      },
+      {
+        "file": "fnox.toml",
+        "line": 7,
+        "description": "Repo config names the production project nile-production, which is consistent with the hard-coded string in checkUser."
+      }
+    ],
+    "reason": "For production, source shows a control that blocks the claim. A public signup for Admin/Nile or Admin/NileInputs yields a Firebase user whose claim profileId is the Nile admin profile. checkUser then rejects that account on every /graphql request, whether the email is non-nile.ag (rule 2) or a made-up @nile.ag address using the password provider (rule 1). The 'critical' severity is therefore refuted. What remains is the missing server-side authorization in Signup and IsAdminSignup, which is a defense-in-depth gap and is not independently exploitable. It matters only in non-production Firebase projects (staging/dev), where checkUser is disabled by project != nile-production. That is outside the production boundary and low impact. Two residual facts are outside source: that the production Firebase token audience really equals nile-production, and that the Admin signup claim is never exercised elsewhere. Source and fnox.toml consistently indicate nile-production. I did not trace every possible internal consumer of Firebase claims that bypasses the API auth middleware, but I found no other user-token verification path. Recommended hardening: remove Admin from public signup, or require an authenticated Nile admin caller, and make checkUser independent of the project name."
+  },
+  "separate_root_causes": [
+    "checkUser (backend/go/auth/auth.go:555) is gated on project == nile-production, so every non-production environment has no Nile-admin sign-in restriction. Combined with public admin signup this gives staging/dev admin self-assignment (environment-hardening note, not a production finding)."
+  ]
+}

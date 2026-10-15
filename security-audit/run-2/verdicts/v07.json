@@ -1,0 +1,52 @@
+{
+  "decision": "needs_validation",
+  "record": {
+    "fingerprint": "c6-website-slack-webhook-committed",
+    "verdict": "needs_validation",
+    "title": "Slack incoming-webhook URL hardcoded in client/website package.json postdeploy script",
+    "description": "The npm script 'slack' in client/website/package.json embeds a full hooks.slack.com/services incoming-webhook URL (real format, not a placeholder or env reference) in a curl POST. client/website/firebase.json hosting.postdeploy runs 'npm run slack' after each Firebase deploy. Anyone with read access to the repository or package can post arbitrary messages as the webhook's bot into the bound Slack channel (spoofed deploy notices, phishing links). Incoming webhooks are write-only, so channel data cannot be read. Impact is limited to message spoofing. No other file under client/ references hooks.slack.com. Whether the webhook is live, which channel it targets, and whether the repo is private or the file is tracked cannot be determined from source (client/website is not a git repo checkout here).",
+    "claimed_root_cause": "A webhook URL that acts as a bearer secret is committed in plaintext in a package.json script instead of being injected from CI or deploy-time environment or a secret store.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "client/website/firebase.json",
+        "line": 3,
+        "scope": "hosting.postdeploy",
+        "description": "Firebase deploy hook runs 'npm run slack' after each hosting deploy. This is the execution path. The attacker entrypoint is read access to the repository contents."
+      },
+      {
+        "kind": "propagation",
+        "file": "client/website/package.json",
+        "line": 13,
+        "scope": "scripts.slack",
+        "description": "Script holds the literal webhook URL and the curl command with a static JSON text payload that interpolates $GCLOUD_PROJECT."
+      },
+      {
+        "kind": "sink",
+        "file": "client/website/package.json",
+        "line": 13,
+        "scope": "scripts.slack curl target",
+        "description": "POST to hooks.slack.com/services/<T>/<B>/<token>. Possession of the URL alone authorizes posting to the Slack channel."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "client/website/package.json",
+        "line": 13,
+        "description": "Literal committed hooks.slack.com/services webhook URL in the slack script (token value not reproduced here)."
+      },
+      {
+        "file": "client/website/firebase.json",
+        "line": 3,
+        "description": "postdeploy hook invokes npm run slack."
+      }
+    ],
+    "blockers": [
+      "Whether the webhook is still active, not revoked, and which Slack channel it posts to is a Slack workspace fact not visible in source.",
+      "Whether the repository is private and who has read access (and whether this file is git-tracked) is a deployment fact not visible in source."
+    ],
+    "validation_plan": {
+      "deployment": "Owner check, with no live probe: in the Slack workspace admin (Apps > Incoming Webhooks or the owning app's Incoming Webhooks page), see whether a webhook matching the committed one's trailing identifier exists and which channel it targets. Check repository visibility and collaborator list, and git history for the file. If the webhook is live, rotate or revoke it, and move the URL to a CI secret or environment variable referenced by the script (for example $SLACK_WEBHOOK_URL)."
+    }
+  }
+}

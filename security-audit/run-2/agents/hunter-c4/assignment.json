@@ -1,0 +1,57 @@
+{
+  "agent_id": "hunter-c4",
+  "units": [
+    {
+      "coverage_id": "client%2Fios%2FNile%2FNile%2FNileWebView.swift%23startDownload::client%2Fios%2FNile%2FNile%2FNileWebView.swift%23decidePolicyFor::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+      "canonical_refs": {
+        "surface": "client/ios/Nile/Nile/NileWebView.swift#startDownload",
+        "boundary": "client/ios/Nile/Nile/NileWebView.swift#decidePolicyFor",
+        "subsystem": "profile/quick/all-in-scope-subsystems",
+        "attack_class": "ATTACK-CLASSES.md#Access control"
+      },
+      "surface": "iOS WKWebView wrapper: navigation, JS bridge, universal links",
+      "boundary": "client/ios/Nile/Nile/NileWebView.swift#decidePolicyFor",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Access control",
+      "starting_paths": [
+        "client/ios/Nile/Nile",
+        "client/ios/Nile/ci_scripts"
+      ],
+      "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+      "selected_companion_blocks": [
+        "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline",
+        "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Deep-link, callback, and navigation attack classes",
+        "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Webview and native-bridge attack classes",
+        "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Universal moves",
+        "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Validation rules"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+          "reason": "no native memory-unsafe code in client/ scope (Swift/Kotlin/TS)"
+        },
+        {
+          "block": "AI-AND-LLM.md#Core discipline",
+          "reason": "no model/tool-call boundary found in client/ recon"
+        },
+        {
+          "block": "PROTOCOLS-RPC-AND-MESSAGING.md#Core discipline",
+          "reason": "server-side RPC/broker boundary reviewed in run-1 (backend/)"
+        },
+        {
+          "block": "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline",
+          "reason": "server-side tenant isolation reviewed in run-1; client only renders"
+        }
+      ],
+      "prior_status": "none",
+      "attempts": [],
+      "wave": 1,
+      "status": "in_progress",
+      "agent_id": "hunter-c4",
+      "reviewed_paths": [],
+      "local_checks": [],
+      "result_fingerprints": [],
+      "unresolved": []
+    }
+  ]
+}

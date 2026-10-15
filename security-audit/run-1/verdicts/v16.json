@@ -1,0 +1,125 @@
+{
+  "decision": "confirmed",
+  "record": {
+    "verdict": "confirmed",
+    "fingerprint": "H5-editshipment-no-ownership",
+    "title": "editShipment/editShipmentItem authorize by party type only, with no check that the caller's profile is a party to the shipment (cross-tenant write)",
+    "description": "The editShipment and editShipmentItem GraphQL mutations load a shipment by caller-supplied ID and authorize through EditShipmentAuthorised, which only checks the caller's PartyType (admin, or buyer/seller if the shipment type has a buyer/seller). It never compares the caller's ProfileID to the shipment's BuyerID, SellerID or AdminID. The edit is then applied through Ledger.Set or EditOrders with no further identity check. Any authenticated Seller or Buyer who knows another tenant's shipment ID can therefore apply edits, dispatch, receive, cancel or complete intents to that shipment. The sibling read-path check EditShipmentAuthorized, which calls ShipmentAuthorized (IsParty) and CheckRoleMayEdit, exists but is used only by a read query, not by these mutations.",
+    "root_cause": "EditShipmentAuthorised (auth_checks.go:127) gates on auth.PartyTypes(...) and shipment-type predicates (smt.HasSeller(), smt.HasBuyer()) only. It has no ownership check (ShipmentAuthorized/IsParty, or auth.PartyTypeForID). fetchLedgerShipment does not scope by caller profile, and the edit handlers and Ledger.Set take no user identity.",
+    "intended_behavior": "A Seller or Buyer may mutate a shipment only if their profile is a party to it (shipment.IsParty(user.ProfileID)), as enforced for reads by ShipmentAuthorized and by EditShipmentAuthorized (auth_checks.go:182) on the read path. Admins are exempt.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1595,
+        "scope": "mutationResolver.EditShipment",
+        "description": "Authenticated GraphQL mutation editShipment(input: EditShipmentInput!) (schema.gql:10099). input.ID is a caller-supplied shipment KSUID."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/shipments.go",
+        "line": 59,
+        "scope": "Resolver.fetchLedgerShipment",
+        "description": "Parses the ID and fetches the shipment via Ledger.Shipments with NewShipmentFilterByIDs (shipments.go:83). The filter has no caller-profile scoping."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1608,
+        "scope": "mutationResolver.EditShipment",
+        "description": "Calls EditShipmentAuthorised(ctx, input, smt). The same check is used at schema.resolvers.go:1746 (EditShipmentItem) and shipment_edits.go:519."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/auth_checks.go",
+        "line": 127,
+        "scope": "EditShipmentAuthorised",
+        "description": "Builds a role list (admin, plus buyer/seller if smt.HasBuyer()/HasSeller() for the intent) and returns auth.Checks(ctx, auth.PartyTypes(roles...)). auth.PartyTypes (auth/checks.go:50) compares only usr.PartyType. No ProfileID vs BuyerID/SellerID/AdminID comparison exists."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/internal/graph/shipment_edits.go",
+        "line": 87,
+        "scope": "mutationResolver.editShipment",
+        "description": "Dispatches by intent to handlers (applyEditShipmentForSeller :242, applyEditShipmentNonAdmin :220, applyEditShipmentUpdate :319, dispatchSellerCustom, receiveBuyerCustom) that write via Ledger.Set or EditOrders. None of these checks IsParty or the profile ID, so the other tenant's shipment is modified."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/api/internal/graph/auth_checks.go",
+        "line": 111,
+        "description": "ShipmentAuthorized (IsParty check) exists but is not called from EditShipmentAuthorised or from the EditShipment/EditShipmentItem resolvers."
+      },
+      {
+        "file": "backend/go/api/internal/graph/auth_checks.go",
+        "line": 182,
+        "description": "EditShipmentAuthorized (with the z) does ShipmentAuthorized + CheckRoleMayEdit. It is referenced only at schema.resolvers.go:3670, in a read query, not in the mutations."
+      },
+      {
+        "file": "backend/go/api/internal/graph/schema.resolvers.go",
+        "line": 1746,
+        "description": "EditShipmentItem repeats the same fetch followed by EditShipmentAuthorised, then editShipmentItem."
+      },
+      {
+        "file": "backend/go/api/internal/shipments/auth_checks.go",
+        "line": 11,
+        "description": "CheckRoleMayEdit is also party-type/platform based only, with no ownership check."
+      },
+      {
+        "file": "backend/go/ledger/shipments.go",
+        "line": 5743,
+        "description": "IsParty compares the profile ID to BuyerID/SellerID/AdminID. It is not used on the mutation path."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "Attacker holds a valid authenticated Seller or Buyer session (any tenant)."
+      },
+      {
+        "kind": "data_state",
+        "description": "The attacker must know the target shipment's KSUID, which is not enumerable by guessing. Whether IDs leak to other tenants was not established from source."
+      },
+      {
+        "kind": "data_state",
+        "description": "The shipment's type must have a seller or buyer, and the intent must be one for which that party type is allowed. For example, EditForSeller, DispatchSeller, Complete and Cancel on external shipments."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "A seller or buyer at tenant A with a valid session who obtains the ID of a shipment between other parties.",
+      "payloads": [
+        "mutation { editShipment(input:{id:\"<other tenant shipment KSUID>\", intent:EDIT_FOR_SELLER, ...}) { success } }"
+      ],
+      "instructions": [
+        "Authenticate as a Seller or Buyer profile that is not a party to the target shipment.",
+        "Send the editShipment (or editShipmentItem) mutation with the target shipment ID and a permitted intent.",
+        "The resolver passes EditShipmentAuthorised because only PartyType is checked, and the edit is persisted via Ledger.Set."
+      ],
+      "observed_result": "Source-level observation, not a runtime result: no ownership check exists on any path from the resolvers to Ledger.Set. The only gate is PartyType membership."
+    },
+    "remediation": {
+      "strategy": "Call ShipmentAuthorized(ctx, smt) (or use EditShipmentAuthorized with IsParty) in EditShipment, EditShipmentItem and the shipment_edits.go:519 path before any edit. Admins remain exempt via party-type logic. Consider enforcing ownership inside the shared editShipment entry too, and add a regression test with a non-party seller and buyer.",
+      "code_changes": [
+        {
+          "file_name": "backend/go/api/internal/graph/auth_checks.go",
+          "fixed_code": "func EditShipmentAuthorised(ctx context.Context, input model.EditShipmentInput, smt ledger.Shipment) error {\n\tif auth.UserFromContext(ctx).PartyType != users.PartyTypeAdmin {\n\t\tif err := ShipmentAuthorized(ctx, smt); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\t// ... existing role checks\n}"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "medium",
+        "reason": "Any authenticated buyer or seller can attempt it. The attacker needs a valid shipment KSUID for another tenant, which is not guessable, and exposure of such IDs to other tenants is unobserved. Intents are also limited by shipment type."
+      },
+      "impact": {
+        "score": "high",
+        "reason": "Cross-tenant write to shipments, covering edits, dispatch, receive, cancel and complete state changes on orders belonging to other parties."
+      },
+      "overall_severity": "medium"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "The absent ownership check was verified in the resolvers, EditShipmentAuthorised, auth.Checks/PartyTypes, fetchLedgerShipment and the edit handlers. Ledger.Set takes no user identity. Not run. The ID-disclosure prerequisite is unverified, which is why likelihood and overall severity are held at medium."
+    }
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "decision": "needs_validation",
+  "record": {
+    "verdict": "needs_validation",
+    "fingerprint": "H5-logo-ssrf",
+    "title": "Profile logo URL fetched server-side without destination restriction when rendering document PDFs (blind SSRF)",
+    "description": "A user holding ProfileInformation:Write on a company profile can store an arbitrary URL string as the profile logo resource. The only validation is url.Parse, which accepts any string. When a shipment document is built, the admin or seller logo URL becomes SourceDoc.Info.Logo. GET /docs/pdf then renders the document in the API process. docpdf.header treats any value starting with 'http' as a logo URL and calls LogoCache.fetch. That fetch uses http.DefaultClient (NewLogoCache(nil)), which has no scheme, host, IP-range or redirect restriction. The result is an authenticated, blind, GET-only server-side request to any host the API process can reach, with a 15s timeout. The response is not returned to the caller. A non-image or non-200 response draws nothing. A 5xx response surfaces as an error. The only visible effect is that a response that decodes as an image is embedded in the rendered PDF. Impact is limited by the GET-only method, the lack of attacker-chosen headers, the lack of a response channel for non-images, and the likely IAM or authentication requirements on internal services. io.ReadAll on the response body is unbounded, so a large response could cause memory pressure. Whether the render host can reach valuable unauthenticated internal HTTP targets is a deployment fact that cannot be settled from source.",
+    "claimed_root_cause": "User-controlled logo URL is validated only by url.Parse and later fetched by LogoCache.fetch with an unrestricted http.Client, with no allow-list of hosts or schemes (for example the upload bucket or CDN), no blocking of private or link-local IPs, and no response size limit.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "backend/go/api/internal/graph/customers/company.go",
+        "line": 631,
+        "scope": "company profile form save (profileLogo case), reachable by users with ProfileInformation Write (editProfile at line 67)",
+        "description": "The profileLogo field value is parsed with field.ParseValidURLs. The URLs are stored at line 705 as ap.Resources[administrator.RscLogo]."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/form/field/field.go",
+        "line": 811,
+        "scope": "field.ParseValidURLs",
+        "description": "Each delimited value is checked only with url.Parse, which accepts nearly any string. No scheme or host check is applied."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/internal/graph/sourcedoc.go",
+        "line": 311,
+        "scope": "buildLogo (and buildLogo_legacy at line 44)",
+        "description": "The admin profile's first logo URL, or the seller's logo URL for seller shipments (lines 316-319), is returned as doc.Info.Logo (assigned at lines 171 and 302)."
+      },
+      {
+        "kind": "propagation",
+        "file": "backend/go/api/docs/docpdf/docpdf.go",
+        "line": 467,
+        "scope": "resolveLogo and renderer.header (lines 359-363)",
+        "description": "Any logo string starting with 'http' is classified logoDoc and passed to opts.Logos.logo(ctx, info.Logo)."
+      },
+      {
+        "kind": "sink",
+        "file": "backend/go/api/docs/docpdf/logocache.go",
+        "line": 99,
+        "scope": "LogoCache.fetch",
+        "description": "c.client.Do(req) issues a GET to the attacker-supplied URL using http.DefaultClient (handler.go line 48, NewLogoCache(nil)). The body is read in full at line 114 and decoded with image.DecodeConfig at line 118."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "backend/go/api/internal/form/field/field.go",
+        "line": 819,
+        "description": "Only url.Parse is checked for logo URLs."
+      },
+      {
+        "file": "backend/go/api/docs/docpdf/logocache.go",
+        "line": 49,
+        "description": "A nil client falls back to http.DefaultClient with no dialer, redirect or IP restrictions."
+      },
+      {
+        "file": "backend/go/api/docs/handler.go",
+        "line": 48,
+        "description": "PDFHandler constructs the cache with NewLogoCache(nil). The handler is authenticated via AuthHTTP (line 58), and the document resolves through the caller's own authorization."
+      },
+      {
+        "file": "backend/go/api/docs/docpdf/logocache.go",
+        "line": 105,
+        "description": "Only status 200 proceeds. 5xx returns an error that is surfaced to the caller (limited error oracle). Other statuses return an empty result. Non-images draw nothing, so there is no response-body exfiltration for non-image content."
+      },
+      {
+        "file": "backend/go/api/docs/docpdf/logocache.go",
+        "line": 114,
+        "description": "io.ReadAll has no size limit."
+      }
+    ],
+    "blockers": [
+      "Egress and reachability facts are not in source: whether the API/docs process can reach internal HTTP services that are unauthenticated or lack a Metadata-Flavor-style header requirement.",
+      "Which roles hold ProfileInformation Write on seller and admin profiles in production, and whether those are external lower-trust tenants or only staff.",
+      "Source shows no response channel beyond image embedding in the PDF and a 5xx error oracle, so the value of the SSRF depends on deployment network layout."
+    ],
+    "validation_plan": {
+      "local": "In a dev environment with synthetic data only, set a logo on a test seller profile to a URL on a local listener that logs requests. Render a shipment document through GET /docs/pdf and confirm one GET arrives from the API process. Then point the logo at a local image served by that listener and confirm it is embedded. Also confirm a non-image response and a non-200 response draw no logo. Confirm that no private-IP block exists on the client.",
+      "deployment": "Owner check: review the Cloud Run service egress and VPC connector or firewall configuration for the API service and list any internal HTTP endpoints reachable without authentication. Review the profile-permission role assignments to see whether external sellers hold ProfileInformation Write. Optionally query stored logo resources for URLs pointing to non-upload hosts. Do not probe live."
+    }
+  },
+  "separate_root_causes": [
+    "LogoCache.fetch reads the full response body with io.ReadAll with no size cap (memory-exhaustion DoS by an authenticated profile editor), distinct from the SSRF root cause."
+  ]
+}

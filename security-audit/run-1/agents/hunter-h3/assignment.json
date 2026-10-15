@@ -1,0 +1,57 @@
+{
+  "agent_id": "hunter-h3",
+  "units": [
+    {
+      "coverage_id": "backend%2Fgo%2Fgerrit%2Ffunctions%2Fwebhook%2Fwebhook.go%23Handle::backend%2Fgo%2Fgerrit%2Fterraform%2Ffunctions.tf%23allUsers%20invoker::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+      "canonical_refs": {
+        "surface": "backend/go/gerrit/functions/webhook/webhook.go#Handle",
+        "boundary": "backend/go/gerrit/terraform/functions.tf#allUsers invoker",
+        "subsystem": "profile/quick/all-in-scope-subsystems",
+        "attack_class": "ATTACK-CLASSES.md#Access control"
+      },
+      "surface": "Gerrit webhook, build function and agent",
+      "boundary": "backend/go/gerrit/terraform/functions.tf#allUsers invoker",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Access control",
+      "starting_paths": [
+        "backend/go/gerrit",
+        "backend/go/functions.go",
+        "backend/go/nilocloud/internal/gerrit.go"
+      ],
+      "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+      "selected_companion_blocks": [
+        "SUPPLY-CHAIN-AND-RELEASE.md#Core discipline",
+        "SUPPLY-CHAIN-AND-RELEASE.md#CI and automation attack classes",
+        "SUPPLY-CHAIN-AND-RELEASE.md#Universal moves",
+        "SUPPLY-CHAIN-AND-RELEASE.md#Validation rules"
+      ],
+      "excluded_blocks": [
+        {
+          "block": "MEMORY-SAFETY-AND-BINARY.md#Core discipline",
+          "reason": "Go/Python/TypeScript only; no native code in backend/ scope"
+        },
+        {
+          "block": "CLIENT-SIDE.md#Core discipline",
+          "reason": "client/ is out of scope for this run"
+        },
+        {
+          "block": "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline",
+          "reason": "client/ is out of scope; no desktop/mobile boundary in backend/"
+        },
+        {
+          "block": "AI-AND-LLM.md#Core discipline",
+          "reason": "no model/tool-call boundary found in backend/ recon"
+        }
+      ],
+      "prior_status": "none",
+      "attempts": [],
+      "wave": 1,
+      "status": "planned",
+      "agent_id": null,
+      "reviewed_paths": [],
+      "local_checks": [],
+      "result_fingerprints": [],
+      "unresolved": []
+    }
+  ]
+}
