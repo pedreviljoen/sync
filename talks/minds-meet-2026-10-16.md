@@ -221,12 +221,40 @@ It has an amplifying effect:
 
 `AI` models will get better, a lot. Context management, security protocols, tight steering and validation loops can drive automated `AI` infrastructure.
 
+---
+
+## AI takeaways
+
+> continued...
+
 Some things I found useful:
 
 - Grill me skill (matt pocock)
   - Use it to poke holes in your idea, make it bulletproof. Don't let the `AI` make assumption decisions for you.
 - When you do something repetitive once with `AI`, after you done... ask the agent to write you a skill to do it next time, keep this up to date
 - Understand the strength and weaknesses of models, and adapt to them as they change
+
+```
+┌─────────────────────────────────────────────────────┐
+│ 2022-24   PROMPT     one message                    │
+└──────────────────────────┬──────────────────────────┘
+                           v
+┌─────────────────────────────────────────────────────┐
+│ Jun 2025  CONTEXT    one session                    │
+│           files, history, tool results              │
+└──────────────────────────┬──────────────────────────┘
+                           v
+┌─────────────────────────────────────────────────────┐
+│ Feb 2026  HARNESS    one agent run                  │
+│           tools, sandbox, tests, permissions        │
+└──────────────────────────┬──────────────────────────┘
+                           v
+┌─────────────────────────────────────────────────────┐
+│ Jun 2026  LOOP       many runs                      │
+│           when, on what, who stops it?              │
+└─────────────────────────────────────────────────────┘
+```
+
 - System One models
   - Watch this space, try to make your `AI` setup more efficient with it
 - Rule #1, don't forget to think
